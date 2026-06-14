@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+<title>Share a thought</title>
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; }
+  body {
+    margin:0; min-height:100vh; display:flex; flex-direction:column; justify-content:center;
+    gap:18px; padding: 24px;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    background:#0d1117; color:#e6edf3;
+  }
+  h1 { font-size:22px; margin:0 0 4px; }
+  p.sub { margin:0 0 8px; color:#8b949e; font-size:15px; }
+  textarea {
+    width:100%; min-height:140px; resize:vertical; padding:16px; font-size:18px;
+    border-radius:14px; border:1px solid #30363d; background:#161b22; color:#e6edf3;
+  }
+  button {
+    padding:16px; font-size:19px; font-weight:600; border:none; border-radius:14px;
+    background:#238636; color:#fff; cursor:pointer;
+  }
+  button:disabled { opacity:.5; }
+  .ok { color:#3fb950; font-size:16px; text-align:center; min-height:22px; }
+  .err { color:#f85149; font-size:15px; line-height:1.5; }
+  .err code { background:#161b22; padding:2px 6px; border-radius:5px; }
+</style>
+</head>
+<body>
+  <div>
+    <h1>Share a thought</h1>
+    <p class="sub">It appears anonymously on the screen.</p>
+  </div>
+  <textarea id="text" placeholder="Type here…" autofocus></textarea>
+  <button id="send">Send</button>
+  <div class="ok" id="ok"></div>
+
+<script type="module">
+  import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
+  import { getDatabase, ref, push }
+    from "https://www.gstatic.com/firebasejs/10.12.2/firebase-database.js";
+  import { firebaseConfig } from "./firebase-config.js";
+
+  const textEl = document.getElementById("text");
+  const btn = document.getElementById("send");
+  const ok = document.getElementById("ok");
+
+  if (firebaseConfig.apiKey === "PASTE_ME") {
+    document.body.innerHTML =
+      '<div class="err">⚠️ Firebase not configured yet.<br>Open <code>firebase-config.js</code> and paste your project config.</div>';
+  } else {
+    const db = getDatabase(initializeApp(firebaseConfig));
+    async function send() {
+      const text = textEl.value.trim();
+      if (!text) return;
+      btn.disabled = true;
+      try {
+        await push(ref(db, "messages"), { text, ts: Date.now() });
+        textEl.value = "";
+        ok.textContent = "✓ Sent! Add another if you like.";
+      } catch (e) {
+        ok.textContent = "Couldn't send: " + e.message;
+      } finally {
+        btn.disabled = false;
+        textEl.focus();
+      }
+    }
+    btn.addEventListener("click", send);
+    // Cmd/Ctrl+Enter to send
+    textEl.addEventListener("keydown", (e) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === "Enter") send();
+    });
+  }
+</script>
+</body>
+</html>
