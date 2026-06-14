@@ -15,17 +15,17 @@
   .qr { background:#fff; padding:10px; border-radius:12px; flex:0 0 auto; }
   .question { font-size:clamp(22px,3.2vw,44px); font-weight:700; line-height:1.15; }
   .join { margin-top:8px; font-size:15px; color:#8b949e; } .join b { color:#58a6ff; }
-  .count { margin-left:auto; font-size:14px; color:#8b949e; align-self:flex-start; white-space:nowrap; }
+  .right { margin-left:auto; display:flex; flex-direction:column; align-items:flex-end; gap:10px; }
+  .count { font-size:14px; color:#8b949e; white-space:nowrap; }
+  .clear { background:#21262d; color:#8b949e; border:1px solid #30363d; border-radius:8px;
+           padding:6px 12px; font-size:13px; cursor:pointer; }
+  .clear:hover { color:#f85149; border-color:#f85149; }
   main { flex:1 1 auto; overflow-y:auto; padding:28px 32px; }
-
-  /* text wall */
   .wall { display:flex; flex-direction:column; gap:14px; }
   .card { background:#161b22; border:1px solid #21262d; border-radius:14px; padding:18px 22px;
           font-size:clamp(18px,2.4vw,30px); line-height:1.3; word-break:break-word;
           animation:pop .35s cubic-bezier(.2,.8,.2,1); }
   @keyframes pop { from{opacity:0;transform:translateY(12px) scale(.97);} to{opacity:1;transform:none;} }
-
-  /* bar chart */
   .bars { display:flex; flex-direction:column; gap:20px; max-width:1100px; }
   .bar-row { font-size:clamp(18px,2.2vw,28px); }
   .bar-label { display:flex; justify-content:space-between; margin-bottom:8px; }
@@ -44,49 +44,68 @@
     <div class="question" id="question">…</div>
     <div class="join">scan, or go to <b id="joinurl">…</b></div>
   </div>
-  <div class="count" id="count"></div>
+  <div class="right">
+    <div class="count" id="count"></div>
+    <button class="clear" id="clear" style="display:none">Clear results</button>
+  </div>
 </header>
 <main id="main"><div class="empty">Loading…</div></main>
 
 <script src="https://cdn.jsdelivr.net/gh/davidshimjs/qrcodejs@04f46c6a/qrcode.min.js"></script>
 <script type="module">
   import { db, configured, pollId, pageURL, makeQR, notConfigured } from "./app.js";
-  import { ref, onValue, onChildAdded, query, limitToLast }
+  import { ref, onValue, onChildAdded, onChildRemoved, query, limitToLast, remove }
     from "https://www.gstatic.com/firebasejs/10.12.2/firebase-database.js";
 
   if (!configured) notConfigured();
   const id = pollId();
   const main = document.getElementById("main");
+  const clearBtn = document.getElementById("clear");
+
   if (!id) {
-    main.innerHTML = '<div class="err">No poll specified. Open this from the control panel (index.html).</div>';
+    main.innerHTML = '<div class="err">No poll specified. Open this from the polls list (index.html).</div>';
   } else {
     const submitURL = pageURL("submit.html", id);
     document.getElementById("joinurl").textContent = submitURL.replace(/^https?:\/\//, "");
     makeQR(document.getElementById("qr"), submitURL, 150);
 
+    clearBtn.style.display = "block";
+    clearBtn.onclick = async () => {
+      if (confirm("Clear all results on this poll?")) await remove(ref(db, "polls/" + id + "/responses"));
+    };
+
     onValue(ref(db, "polls/" + id + "/config"), (snap) => {
       const cfg = snap.val();
-      if (!cfg) { main.innerHTML = '<div class="err">Poll \"' + id + '\" not found.</div>'; return; }
+      if (!cfg) { main.innerHTML = '<div class="err">Poll "' + id + '" not found.</div>'; return; }
       document.getElementById("question").textContent = cfg.question;
       if (cfg.type === "mc") renderMC(cfg);
       else renderText();
     }, { onlyOnce: true });
   }
 
+  const respRef = () => ref(db, "polls/" + id + "/responses");
+  const countEl = document.getElementById("count");
+
   function renderText() {
-    main.innerHTML = '<div class="wall" id="wall"></div>';
+    main.innerHTML = '<div class="wall" id="wall"><div class="empty">Waiting for responses…</div></div>';
     const wall = document.getElementById("wall");
-    const countEl = document.getElementById("count");
-    let n = 0, empty = true;
-    onChildAdded(query(ref(db, "polls/" + id + "/responses"), limitToLast(200)), (snap) => {
+    const setCount = () => {
+      const n = wall.querySelectorAll(".card").length;
+      countEl.textContent = n + (n === 1 ? " response" : " responses");
+      if (n === 0 && !wall.querySelector(".empty"))
+        wall.innerHTML = '<div class="empty">Waiting for responses…</div>';
+    };
+    onChildAdded(query(respRef(), limitToLast(200)), (snap) => {
       const m = snap.val(); if (!m || !m.text) return;
-      if (empty) { wall.innerHTML = ""; empty = false; }
+      const e = wall.querySelector(".empty"); if (e) e.remove();
       const div = document.createElement("div");
-      div.className = "card"; div.textContent = m.text;
-      wall.prepend(div);
-      countEl.textContent = (++n) + (n === 1 ? " response" : " responses");
+      div.className = "card"; div.dataset.key = snap.key; div.textContent = m.text;
+      wall.prepend(div); setCount();
     });
-    main.querySelector(".wall").innerHTML = '<div class="empty">Waiting for responses…</div>';
+    onChildRemoved(respRef(), (snap) => {
+      const node = wall.querySelector('[data-key="' + snap.key + '"]');
+      if (node) node.remove(); setCount();
+    });
   }
 
   function renderMC(cfg) {
@@ -101,8 +120,7 @@
       row.querySelector("span").textContent = label;
       bars.appendChild(row);
     });
-    const countEl = document.getElementById("count");
-    onValue(ref(db, "polls/" + id + "/responses"), (snap) => {
+    onValue(respRef(), (snap) => {
       const resp = snap.val() || {};
       const counts = new Array(opts.length).fill(0);
       let total = 0;

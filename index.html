@@ -3,22 +3,14 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Poll Engine — Control Panel</title>
+<title>Poll Engine — Polls</title>
 <style>
   :root { color-scheme: dark; }
   * { box-sizing: border-box; }
   body { margin:0; font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
          background:#0d1117; color:#e6edf3; padding:28px; max-width:900px; margin:0 auto; }
-  h1 { margin:0 0 4px; } .sub { color:#8b949e; margin:0 0 24px; }
-  .panel { background:#161b22; border:1px solid #21262d; border-radius:14px; padding:20px; margin-bottom:28px; }
-  label { display:block; font-size:13px; color:#8b949e; margin:14px 0 5px; }
-  input, select, textarea { width:100%; padding:11px 13px; font-size:15px; border-radius:10px;
-         border:1px solid #30363d; background:#0d1117; color:#e6edf3; }
-  textarea { min-height:90px; resize:vertical; }
-  button { padding:11px 18px; font-size:15px; font-weight:600; border:none; border-radius:10px;
-           background:#238636; color:#fff; cursor:pointer; margin-top:16px; }
-  button.secondary { background:#21262d; color:#e6edf3; margin:0; padding:7px 12px; font-size:13px; }
-  button.danger { background:#3d1418; color:#f85149; }
+  h1 { margin:0 0 4px; } .sub { color:#8b949e; margin:0 0 24px; font-size:14px; }
+  code { background:#161b22; padding:2px 6px; border-radius:5px; font-size:13px; }
   .poll { background:#161b22; border:1px solid #21262d; border-radius:14px; padding:16px 18px;
           margin-bottom:14px; display:flex; gap:16px; align-items:flex-start; }
   .poll .meta { flex:1; }
@@ -26,81 +18,32 @@
   .poll .type { font-size:12px; color:#8b949e; text-transform:uppercase; letter-spacing:.04em; margin-top:2px; }
   .poll .links { margin-top:10px; display:flex; gap:8px; flex-wrap:wrap; }
   .poll .qr { background:#fff; padding:6px; border-radius:8px; flex:0 0 auto; }
+  button.secondary { background:#21262d; color:#e6edf3; border:none; border-radius:8px; padding:7px 12px; font-size:13px; cursor:pointer; }
+  button.warn { background:#3a2d0a; color:#e3b341; }
+  button.danger { background:#3d1418; color:#f85149; }
   a.btnlink { text-decoration:none; }
   .empty { color:#6e7681; }
-  #optionsWrap { display:none; }
 </style>
 </head>
 <body>
-  <h1>🗳️ Poll Engine</h1>
-  <p class="sub">One database, many polls. Create one, then open its display on the screen and let people scan the QR.</p>
-
-  <div class="panel">
-    <h3 style="margin:0">Create a poll</h3>
-    <label>Type</label>
-    <select id="type">
-      <option value="text">Text wall — open responses appear live</option>
-      <option value="mc">Multiple choice — live bar chart</option>
-    </select>
-    <label>Question / prompt</label>
-    <input id="question" placeholder="e.g. What's one thing you learned today?">
-    <div id="optionsWrap">
-      <label>Options (one per line)</label>
-      <textarea id="options" placeholder="Strongly agree&#10;Agree&#10;Disagree&#10;Strongly disagree"></textarea>
-    </div>
-    <label>Poll ID (used in the link; auto-filled, edit if you like)</label>
-    <input id="pid" placeholder="auto">
-    <button id="create">Create poll</button>
-    <div id="msg" style="color:#3fb950;margin-top:10px;min-height:20px"></div>
-  </div>
-
-  <h3>Your polls</h3>
+  <h1>🗳️ Polls</h1>
+  <p class="sub">Polls are created by a Claude Code agent (e.g. <code>python3 newpoll.py mc q1 "Question?" "A" "B"</code>). This page just lists them so you can open a display, grab a QR, or clear results.</p>
   <div id="list"><p class="empty">Loading…</p></div>
 
 <script src="https://cdn.jsdelivr.net/gh/davidshimjs/qrcodejs@04f46c6a/qrcode.min.js"></script>
 <script type="module">
-  import { db, configured, pageURL, slugify, makeQR, notConfigured } from "./app.js";
-  import { ref, set, remove, onValue, get }
+  import { db, configured, pageURL, makeQR, notConfigured } from "./app.js";
+  import { ref, remove, onValue }
     from "https://www.gstatic.com/firebasejs/10.12.2/firebase-database.js";
 
   if (!configured) notConfigured();
-
-  const typeEl = document.getElementById("type");
-  const qEl = document.getElementById("question");
-  const optWrap = document.getElementById("optionsWrap");
-  const optEl = document.getElementById("options");
-  const pidEl = document.getElementById("pid");
-  const msg = document.getElementById("msg");
-
-  typeEl.onchange = () => { optWrap.style.display = typeEl.value === "mc" ? "block" : "none"; };
-  qEl.oninput = () => { if (!pidEl.dataset.touched) pidEl.value = slugify(qEl.value); };
-  pidEl.oninput = () => { pidEl.dataset.touched = "1"; };
-
-  document.getElementById("create").onclick = async () => {
-    const question = qEl.value.trim();
-    const id = slugify(pidEl.value || question);
-    if (!question) { msg.style.color = "#f85149"; msg.textContent = "Add a question first."; return; }
-    const cfg = { type: typeEl.value, question, created: Date.now() };
-    if (typeEl.value === "mc") {
-      const options = optEl.value.split("\n").map(s => s.trim()).filter(Boolean);
-      if (options.length < 2) { msg.style.color = "#f85149"; msg.textContent = "Add at least 2 options."; return; }
-      cfg.options = options;
-    }
-    // Don't clobber an existing poll's responses if the ID already exists
-    const existing = await get(ref(db, "polls/" + id + "/config"));
-    if (existing.exists()) { msg.style.color = "#f85149"; msg.textContent = "That poll ID already exists — pick another."; return; }
-    await set(ref(db, "polls/" + id + "/config"), cfg);
-    msg.style.color = "#3fb950"; msg.textContent = "✓ Created: " + id;
-    qEl.value = ""; optEl.value = ""; pidEl.value = ""; delete pidEl.dataset.touched;
-  };
-
-  // Live list of polls
   const list = document.getElementById("list");
+
   onValue(ref(db, "polls"), (snap) => {
     const polls = snap.val() || {};
     const ids = Object.keys(polls).sort((a, b) =>
       (polls[b].config?.created || 0) - (polls[a].config?.created || 0));
-    if (!ids.length) { list.innerHTML = '<p class="empty">No polls yet. Create one above.</p>'; return; }
+    if (!ids.length) { list.innerHTML = '<p class="empty">No polls yet. Create one with newpoll.py.</p>'; return; }
     list.innerHTML = "";
     for (const id of ids) {
       const c = polls[id].config; if (!c) continue;
@@ -115,13 +58,18 @@
           '<div class="links">' +
             '<a class="btnlink" target="_blank" href="' + pageURL("display.html", id) + '"><button class="secondary">📺 Open display</button></a>' +
             '<a class="btnlink" target="_blank" href="' + pageURL("submit.html", id) + '"><button class="secondary">📱 Phone view</button></a>' +
-            '<button class="secondary danger" data-del="' + id + '">Delete</button>' +
+            '<button class="secondary warn" data-clear="' + id + '">Clear results</button>' +
+            '<button class="secondary danger" data-del="' + id + '">Delete poll</button>' +
           '</div>' +
         '</div>';
       row.querySelector(".q").textContent = c.question;
       makeQR(row.querySelector(".qr"), pageURL("submit.html", id), 90);
+      row.querySelector("[data-clear]").onclick = async () => {
+        if (confirm('Clear all results for "' + c.question + '"?'))
+          await remove(ref(db, "polls/" + id + "/responses"));
+      };
       row.querySelector("[data-del]").onclick = async () => {
-        if (confirm("Delete poll \"" + c.question + "\" and all its responses?"))
+        if (confirm('Delete poll "' + c.question + '" and all its responses?'))
           await remove(ref(db, "polls/" + id));
       };
       list.appendChild(row);
