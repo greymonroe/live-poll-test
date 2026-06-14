@@ -50,19 +50,19 @@
   const root = document.getElementById("root");
   const LETTERS = ["A", "B", "C", "D"];
 
-  if (!configured) { notConfigured(); }
-  else if (!id) {
-    root.innerHTML = '<div class="err">No quiz specified. Scan the QR on the screen.</div>';
-  } else {
-    boot();
-  }
-
   const base = "quizzes/" + id;
   const idKey  = "quizid_" + id;     // stored player push id
   const nameKey = "quizname_" + id;  // stored player name
 
   let config = null, state = null, myId = null, myName = null;
   let lastQ = -1, locked = false, myChoice = null;
+
+  if (!configured) { notConfigured(); }
+  else if (!id) {
+    root.innerHTML = '<div class="err">No quiz specified. Scan the QR on the screen.</div>';
+  } else {
+    boot();
+  }
 
   async function boot() {
     const snap = await get(ref(db, base + "/config"));

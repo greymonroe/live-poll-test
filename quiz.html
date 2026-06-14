@@ -91,16 +91,16 @@
   const main = document.getElementById("main");
   const metaEl = document.getElementById("meta");
 
+  let config = null;
+  const base = "quizzes/" + id;
+  const LETTERS = ["A", "B", "C", "D"];
+
   if (!configured) { notConfigured(); }
   else if (!id) {
     main.innerHTML = '<div class="err">No quiz specified. Open this as quiz.html?quiz=ID.</div>';
   } else {
     boot();
   }
-
-  let config = null;
-  const base = "quizzes/" + id;
-  const LETTERS = ["A", "B", "C", "D"];
 
   async function boot() {
     const snap = await get(ref(db, base + "/config"));
