@@ -2,8 +2,9 @@
 """Create a poll in the live poll engine — the agent-facing creation path.
 
 Usage:
-  python3 newpoll.py text  <id> "Question?"
-  python3 newpoll.py mc     <id> "Question?" "Option A" "Option B" [more options...]
+  python3 newpoll.py text      <id> "Question?"
+  python3 newpoll.py wordcloud <id> "Question?"
+  python3 newpoll.py mc        <id> "Question?" "Option A" "Option B" [more options...]
 
 The <id> becomes part of the URL. Use a short slug, e.g. pls152-week3.
 Prints the display + phone URLs when done.
@@ -42,8 +43,8 @@ def main() -> None:
     if len(args) < 3:
         sys.exit(__doc__)
     ptype, pid, question, *options = args
-    if ptype not in ("text", "mc"):
-        sys.exit('type must be "text" or "mc"')
+    if ptype not in ("text", "mc", "wordcloud"):
+        sys.exit('type must be "text", "wordcloud", or "mc"')
     pid = re.sub(r"[^a-z0-9]+", "-", pid.lower()).strip("-")
     if not pid:
         sys.exit("invalid id")
