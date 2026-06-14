@@ -34,8 +34,10 @@ Rules for the JSON:
       - "q": the question text (string).
       - "options": a list of 2-4 answer strings.
       - "correct": the 0-based index of the correct option (0..len-1).
-      - "image": OPTIONAL image URL shown above the answers (e.g. a bird photo for
-        "What species is this?"). Any publicly reachable https URL works.
+      - "image": OPTIONAL image shown above the answers (e.g. a bird photo for
+        "What species is this?"). Either a public https URL, or a repo-relative
+        path to a file you committed under images/ (e.g. "images/cardinal.jpg").
+        Repo-hosted is most reliable (same-origin, no external dependency).
 """
 import json
 import re
