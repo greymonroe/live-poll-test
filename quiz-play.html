@@ -17,6 +17,8 @@
   button.go { padding:18px; font-size:19px; font-weight:700; border:none; border-radius:14px;
               background:#238636; color:#fff; cursor:pointer; width:100%; }
   button.go:disabled { opacity:.5; }
+  .qimg { display:block; width:100%; max-height:34vh; object-fit:contain;
+          border-radius:14px; margin:0 0 4px; border:1px solid #21262d; background:#161b22; }
   .tiles { display:grid; grid-template-columns:repeat(2,1fr); gap:12px; }
   .tile { display:flex; align-items:center; gap:10px; padding:20px 16px; border-radius:16px;
           font-size:18px; font-weight:700; color:#fff; border:none; cursor:pointer;
@@ -86,11 +88,21 @@
   }
 
   function listen() {
-    onValue(ref(db, base + "/state"), (s) => {
+    onValue(ref(db, base + "/state"), async (s) => {
       state = s.val();
       // Reset answer lock when the question index changes.
       const qi = state && typeof state.q === "number" ? state.q : -1;
-      if (!state || state.phase === "lobby") { lastQ = -1; locked = false; myChoice = null; }
+      if (!state || state.phase === "lobby") {
+        lastQ = -1; locked = false; myChoice = null;
+        // If the host did a full reset, our player record is gone — re-prompt for a name.
+        if (myId) {
+          const me = await get(ref(db, base + "/players/" + myId));
+          if (!me.exists()) {
+            localStorage.removeItem(idKey); localStorage.removeItem(nameKey);
+            myId = null; myName = null; renderName(); return;
+          }
+        }
+      }
       else if (qi !== lastQ) { lastQ = qi; locked = hasAnsweredLocally(qi); myChoice = answeredChoice(qi); }
       render();
     });
@@ -181,6 +193,7 @@
       '</button>').join("");
     root.innerHTML =
       '<h1>Q' + (qi + 1) + '. ' + esc(q.q) + '</h1>' +
+      (q.image ? '<img class="qimg" src="' + esc(q.image) + '" alt="">' : '') +
       '<p class="sub">Tap your answer.</p>' +
       '<div class="tiles">' + tiles + '</div>' + youLine();
 

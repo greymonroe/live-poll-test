@@ -33,7 +33,10 @@
 
   /* Question / reveal */
   .qtext { font-size:clamp(24px,3.4vw,46px); font-weight:700; line-height:1.2;
-           margin:0 0 28px; max-width:1200px; }
+           margin:0 0 22px; max-width:1200px; }
+  .qimg { display:block; max-width:min(680px,90%); max-height:42vh; width:auto;
+          object-fit:contain; border-radius:16px; margin:0 0 24px;
+          border:1px solid #21262d; background:#161b22; }
   .tiles { display:grid; grid-template-columns:repeat(2,1fr); gap:18px; max-width:1100px; }
   .tile { display:flex; align-items:center; gap:16px; padding:22px 26px; border-radius:16px;
           font-size:clamp(18px,2.2vw,30px); font-weight:700; color:#fff; position:relative;
@@ -81,7 +84,7 @@
 <script src="https://cdn.jsdelivr.net/gh/davidshimjs/qrcodejs@04f46c6a/qrcode.min.js"></script>
 <script type="module">
   import { db, configured, pageURL, makeQR, notConfigured } from "./app.js";
-  import { ref, set, update, get, onValue }
+  import { ref, set, update, get, onValue, remove }
     from "https://www.gstatic.com/firebasejs/10.12.2/firebase-database.js";
 
   const LIMIT = 20;           // seconds; full speed bonus window
@@ -119,6 +122,16 @@
   function setState(patch) {
     const next = Object.assign({}, state, patch);
     set(ref(db, base + "/state"), next);   // optimistic; onValue confirms
+  }
+
+  // Full reset: wipe all players, scores, and answers, back to a clean lobby.
+  // The quiz questions (config) are kept, so you can reuse the same quiz next year.
+  async function resetGame() {
+    await Promise.all([
+      remove(ref(db, base + "/players")),
+      remove(ref(db, base + "/answers")),
+    ]);
+    set(ref(db, base + "/state"), { phase: "lobby", q: 0, startedAt: 0 });
   }
 
   // Subscribe to answers for the current question (live counter / reveal data).
@@ -162,11 +175,14 @@
       '</div>' +
       '<div class="controls">' +
         '<button id="start"' + (playerCount() ? "" : " disabled") + '>Start quiz</button>' +
+        (playerCount() ? '<button class="sec" id="reset">Reset (clear players)</button>' : "") +
         '<span class="answered">' + config.questions.length + ' questions</span>' +
       '</div>';
     makeQR(document.getElementById("qr"), playURL, 200);
     document.getElementById("start").onclick = () =>
       setState({ phase: "question", q: 0, startedAt: Date.now() });
+    const rb = document.getElementById("reset");
+    if (rb) rb.onclick = () => { if (confirm("Clear all joined players and scores?")) resetGame(); };
   }
 
   // pageURL builds ?poll=ID; we want ?quiz=ID. Patch it.
@@ -208,6 +224,7 @@
       '<div class="qprogress answered" style="margin-bottom:14px">Question ' + (qi + 1) +
         ' of ' + config.questions.length + '</div>' +
       '<h1 class="qtext">' + esc(q.q) + '</h1>' +
+      (q.image ? '<img class="qimg" src="' + esc(q.image) + '" alt="">' : '') +
       '<div class="tiles">' + tiles + '</div>' +
       '<div class="controls">' + controls + '</div>';
 
@@ -281,7 +298,7 @@
 
     let controls;
     if (done) {
-      controls = '<button class="sec" id="restart">Back to lobby</button>';
+      controls = '<button id="restart">Reset & start over</button>';
     } else if (last) {
       controls = '<button id="finish">Finish 🏁</button>';
     } else {
@@ -297,7 +314,7 @@
 
     if (done) {
       document.getElementById("restart").onclick = () =>
-        set(ref(db, base + "/state"), { phase: "lobby", q: 0, startedAt: 0 });
+        { if (confirm("Reset this quiz? Clears all players and scores so you can run it fresh.")) resetGame(); };
     } else if (last) {
       document.getElementById("finish").onclick = () => setState({ phase: "done" });
     } else {

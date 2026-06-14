@@ -34,6 +34,8 @@ Rules for the JSON:
       - "q": the question text (string).
       - "options": a list of 2-4 answer strings.
       - "correct": the 0-based index of the correct option (0..len-1).
+      - "image": OPTIONAL image URL shown above the answers (e.g. a bird photo for
+        "What species is this?"). Any publicly reachable https URL works.
 """
 import json
 import re
@@ -95,7 +97,13 @@ def load_and_validate(path: str) -> dict:
         if not isinstance(correct, int) or isinstance(correct, bool) \
                 or not (0 <= correct < len(options)):
             sys.exit(f"{where}: 'correct' must be an index 0..{len(options) - 1}")
-        clean_qs.append({"q": text, "options": options, "correct": correct})
+        cleaned = {"q": text, "options": options, "correct": correct}
+        image = q.get("image")
+        if image is not None:
+            if not isinstance(image, str) or not image.strip():
+                sys.exit(f"{where}: 'image' must be a URL string")
+            cleaned["image"] = image.strip()
+        clean_qs.append(cleaned)
 
     title = data.get("title")
     if title is not None and not isinstance(title, str):
