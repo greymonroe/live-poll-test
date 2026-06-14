@@ -8,26 +8,44 @@ you want from the control panel — each gets its own QR code. The Firebase setu
 per-poll.
 
 ## Pages
-- `index.html` — **control panel**: create polls, list them, get each one's display/phone links + QR.
-- `display.html?poll=ID` — **big screen** for one poll: QR + live results (text wall or bar chart).
-- `submit.html?poll=ID` — **phone view**: text box (text poll) or tappable options (multiple choice).
+- `index.html` — **poll list** (read-only): open a display, grab a QR, clear results, or delete.
+- `display.html?poll=ID` — **big screen** for one poll: QR + live results (text wall, bar chart, or word cloud) + a Clear button.
+- `submit.html?poll=ID` — **phone view**: text box or tappable options depending on type.
+- `quiz.html?quiz=ID` — **Kahoot-style quiz host** (big screen, controls the game).
+- `quiz-play.html?quiz=ID` — **quiz player** (phone).
 - `app.js` — shared helpers + Firebase init.
 - `firebase-config.js` — paste your Firebase config here once (instructions inside).
 
+## Creating polls/quizzes (agent workflow — there is no GUI builder)
+Polls and quizzes are created by running a helper (designed to be run by a Claude Code agent):
+```
+python3 newpoll.py text      pls152-w3 "What's one thing you learned?"
+python3 newpoll.py wordcloud pls152-w3 "One word: how's class going?"
+python3 newpoll.py mc        pls152-w3 "Confidence level?" "Lost" "Shaky" "Getting it" "Nailed it"
+python3 newquiz.py pls152-quiz1 quiz.json    # quiz.json format below
+```
+Each prints the display/host URL + the phone/QR URL.
+
+quiz.json format:
+```json
+{ "title": "Plant Genetics Warm-up",
+  "questions": [
+    { "q": "What pigment makes leaves green?",
+      "options": ["Chlorophyll","Carotene","Anthocyanin","Xanthophyll"], "correct": 0 }
+  ] }
+```
+
 ## Data model (Firebase Realtime Database)
 ```
-polls/
-  <pollId>/
-    config/      { type: "text"|"mc", question, options?[], created }
-    responses/   push-list of { text } (text) or { choice: <optionIndex> } (mc)
+polls/<id>/config      { type: "text"|"mc"|"wordcloud", question, options?[], created }
+polls/<id>/responses   push-list of { text } or { choice: <optionIndex> }
+quizzes/<id>/config    { title, questions:[{q,options[],correct}], created }
+quizzes/<id>/state     { phase, q, startedAt }     (host-written)
+quizzes/<id>/players/<pid>      { name, score }
+quizzes/<id>/answers/<q>/<pid>  { choice, ts }
 ```
-To add a poll type later (word cloud, rating, quiz…), add a `type` and render it in
-display.html / submit.html. The database stays the same — poll "type" is just rendering.
-
-## Use it
-1. Open `index.html` (the control panel).
-2. Pick a type, type a question (+ options for multiple choice), Create.
-3. Click **Open display** on the screen; people scan the QR or tap **Phone view**.
+A poll "type" is just how display.html renders the same stored data — adding a type
+(rating, ranking, Q&A…) is front-end only, no backend change.
 
 ## Limits (Firebase free "Spark" plan)
 - Storage 1 GB, download 10 GB/mo — irrelevant for text/vote data (store hundreds of thousands).
@@ -49,5 +67,5 @@ https://greymonroe.github.io/live-poll-test/
 - DB rules are wide open (anyone with a link can read/write). Tighten to "append-only short
   messages, no full-tree read/delete" before pointing a real class at it.
 - One-vote-per-person is a soft localStorage guard only (clears if they switch devices/clear data).
-- Possible next types: word cloud, 1–5 rating, ranking, quiz-with-leaderboard, Q&A + upvotes.
+- Possible next types: 1–5 rating, ranking, Q&A + upvotes.
 - Moderation (approve-before-show) toggle.
