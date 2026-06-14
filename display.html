@@ -1,0 +1,125 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Poll — Display</title>
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; }
+  body { margin:0; height:100vh; display:flex; flex-direction:column;
+         font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
+         background:#0d1117; color:#e6edf3; overflow:hidden; }
+  header { display:flex; align-items:center; gap:28px; padding:20px 32px;
+           border-bottom:1px solid #21262d; flex:0 0 auto; }
+  .qr { background:#fff; padding:10px; border-radius:12px; flex:0 0 auto; }
+  .question { font-size:clamp(22px,3.2vw,44px); font-weight:700; line-height:1.15; }
+  .join { margin-top:8px; font-size:15px; color:#8b949e; } .join b { color:#58a6ff; }
+  .count { margin-left:auto; font-size:14px; color:#8b949e; align-self:flex-start; white-space:nowrap; }
+  main { flex:1 1 auto; overflow-y:auto; padding:28px 32px; }
+
+  /* text wall */
+  .wall { display:flex; flex-direction:column; gap:14px; }
+  .card { background:#161b22; border:1px solid #21262d; border-radius:14px; padding:18px 22px;
+          font-size:clamp(18px,2.4vw,30px); line-height:1.3; word-break:break-word;
+          animation:pop .35s cubic-bezier(.2,.8,.2,1); }
+  @keyframes pop { from{opacity:0;transform:translateY(12px) scale(.97);} to{opacity:1;transform:none;} }
+
+  /* bar chart */
+  .bars { display:flex; flex-direction:column; gap:20px; max-width:1100px; }
+  .bar-row { font-size:clamp(18px,2.2vw,28px); }
+  .bar-label { display:flex; justify-content:space-between; margin-bottom:8px; }
+  .bar-track { background:#161b22; border:1px solid #21262d; border-radius:12px; height:clamp(34px,5vw,60px); overflow:hidden; }
+  .bar-fill { height:100%; width:0; border-radius:12px; transition:width .5s cubic-bezier(.2,.8,.2,1);
+              background:linear-gradient(90deg,#1f6feb,#388bfd); }
+  .pct { color:#8b949e; font-size:.8em; }
+  .empty { color:#6e7681; font-size:clamp(18px,2vw,26px); margin:auto; text-align:center; }
+  .err { color:#f85149; padding:32px; font-size:18px; }
+</style>
+</head>
+<body>
+<header>
+  <div class="qr" id="qr"></div>
+  <div>
+    <div class="question" id="question">…</div>
+    <div class="join">scan, or go to <b id="joinurl">…</b></div>
+  </div>
+  <div class="count" id="count"></div>
+</header>
+<main id="main"><div class="empty">Loading…</div></main>
+
+<script src="https://cdn.jsdelivr.net/gh/davidshimjs/qrcodejs@04f46c6a/qrcode.min.js"></script>
+<script type="module">
+  import { db, configured, pollId, pageURL, makeQR, notConfigured } from "./app.js";
+  import { ref, onValue, onChildAdded, query, limitToLast }
+    from "https://www.gstatic.com/firebasejs/10.12.2/firebase-database.js";
+
+  if (!configured) notConfigured();
+  const id = pollId();
+  const main = document.getElementById("main");
+  if (!id) {
+    main.innerHTML = '<div class="err">No poll specified. Open this from the control panel (index.html).</div>';
+  } else {
+    const submitURL = pageURL("submit.html", id);
+    document.getElementById("joinurl").textContent = submitURL.replace(/^https?:\/\//, "");
+    makeQR(document.getElementById("qr"), submitURL, 150);
+
+    onValue(ref(db, "polls/" + id + "/config"), (snap) => {
+      const cfg = snap.val();
+      if (!cfg) { main.innerHTML = '<div class="err">Poll \"' + id + '\" not found.</div>'; return; }
+      document.getElementById("question").textContent = cfg.question;
+      if (cfg.type === "mc") renderMC(cfg);
+      else renderText();
+    }, { onlyOnce: true });
+  }
+
+  function renderText() {
+    main.innerHTML = '<div class="wall" id="wall"></div>';
+    const wall = document.getElementById("wall");
+    const countEl = document.getElementById("count");
+    let n = 0, empty = true;
+    onChildAdded(query(ref(db, "polls/" + id + "/responses"), limitToLast(200)), (snap) => {
+      const m = snap.val(); if (!m || !m.text) return;
+      if (empty) { wall.innerHTML = ""; empty = false; }
+      const div = document.createElement("div");
+      div.className = "card"; div.textContent = m.text;
+      wall.prepend(div);
+      countEl.textContent = (++n) + (n === 1 ? " response" : " responses");
+    });
+    main.querySelector(".wall").innerHTML = '<div class="empty">Waiting for responses…</div>';
+  }
+
+  function renderMC(cfg) {
+    const opts = cfg.options || [];
+    main.innerHTML = '<div class="bars" id="bars"></div>';
+    const bars = document.getElementById("bars");
+    opts.forEach((label, i) => {
+      const row = document.createElement("div");
+      row.className = "bar-row";
+      row.innerHTML = '<div class="bar-label"><span></span><span><span class="n">0</span> <span class="pct">(0%)</span></span></div>' +
+                      '<div class="bar-track"><div class="bar-fill" id="fill-' + i + '"></div></div>';
+      row.querySelector("span").textContent = label;
+      bars.appendChild(row);
+    });
+    const countEl = document.getElementById("count");
+    onValue(ref(db, "polls/" + id + "/responses"), (snap) => {
+      const resp = snap.val() || {};
+      const counts = new Array(opts.length).fill(0);
+      let total = 0;
+      Object.values(resp).forEach(r => {
+        const c = typeof r.choice === "number" ? r.choice : -1;
+        if (c >= 0 && c < opts.length) { counts[c]++; total++; }
+      });
+      const max = Math.max(1, ...counts);
+      opts.forEach((_, i) => {
+        const row = bars.children[i];
+        row.querySelector(".n").textContent = counts[i];
+        row.querySelector(".pct").textContent = "(" + (total ? Math.round(counts[i] / total * 100) : 0) + "%)";
+        document.getElementById("fill-" + i).style.width = (counts[i] / max * 100) + "%";
+      });
+      countEl.textContent = total + (total === 1 ? " vote" : " votes");
+    });
+  }
+</script>
+</body>
+</html>

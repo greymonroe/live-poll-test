@@ -3,76 +3,95 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
-<title>Share a thought</title>
+<title>Respond</title>
 <style>
   :root { color-scheme: dark; }
   * { box-sizing: border-box; }
-  body {
-    margin:0; min-height:100vh; display:flex; flex-direction:column; justify-content:center;
-    gap:18px; padding: 24px;
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-    background:#0d1117; color:#e6edf3;
-  }
-  h1 { font-size:22px; margin:0 0 4px; }
-  p.sub { margin:0 0 8px; color:#8b949e; font-size:15px; }
-  textarea {
-    width:100%; min-height:140px; resize:vertical; padding:16px; font-size:18px;
-    border-radius:14px; border:1px solid #30363d; background:#161b22; color:#e6edf3;
-  }
-  button {
-    padding:16px; font-size:19px; font-weight:600; border:none; border-radius:14px;
-    background:#238636; color:#fff; cursor:pointer;
-  }
+  body { margin:0; min-height:100vh; display:flex; flex-direction:column; justify-content:center;
+         gap:16px; padding:24px; font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
+         background:#0d1117; color:#e6edf3; }
+  h1 { font-size:22px; margin:0; line-height:1.25; }
+  p.sub { margin:0; color:#8b949e; font-size:14px; }
+  textarea { width:100%; min-height:140px; resize:vertical; padding:16px; font-size:18px;
+             border-radius:14px; border:1px solid #30363d; background:#161b22; color:#e6edf3; }
+  button { padding:18px; font-size:19px; font-weight:600; border:none; border-radius:14px;
+           background:#238636; color:#fff; cursor:pointer; }
   button:disabled { opacity:.5; }
+  .opt { background:#161b22; border:1px solid #30363d; color:#e6edf3; text-align:left; }
+  .opt.chosen { background:#1f6feb; border-color:#1f6feb; }
   .ok { color:#3fb950; font-size:16px; text-align:center; min-height:22px; }
   .err { color:#f85149; font-size:15px; line-height:1.5; }
-  .err code { background:#161b22; padding:2px 6px; border-radius:5px; }
 </style>
 </head>
 <body>
-  <div>
-    <h1>Share a thought</h1>
-    <p class="sub">It appears anonymously on the screen.</p>
-  </div>
-  <textarea id="text" placeholder="Type here…" autofocus></textarea>
-  <button id="send">Send</button>
+  <h1 id="question">Loading…</h1>
+  <p class="sub" id="sub"></p>
+  <div id="ui"></div>
   <div class="ok" id="ok"></div>
 
 <script type="module">
-  import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
-  import { getDatabase, ref, push }
+  import { db, configured, pollId, notConfigured } from "./app.js";
+  import { ref, push, onValue }
     from "https://www.gstatic.com/firebasejs/10.12.2/firebase-database.js";
-  import { firebaseConfig } from "./firebase-config.js";
 
-  const textEl = document.getElementById("text");
-  const btn = document.getElementById("send");
+  if (!configured) notConfigured();
+  const id = pollId();
+  const qEl = document.getElementById("question");
+  const sub = document.getElementById("sub");
+  const ui = document.getElementById("ui");
   const ok = document.getElementById("ok");
 
-  if (firebaseConfig.apiKey === "PASTE_ME") {
-    document.body.innerHTML =
-      '<div class="err">⚠️ Firebase not configured yet.<br>Open <code>firebase-config.js</code> and paste your project config.</div>';
+  if (!id) {
+    document.body.innerHTML = '<div class="err">No poll specified. Scan the QR on the screen.</div>';
   } else {
-    const db = getDatabase(initializeApp(firebaseConfig));
+    onValue(ref(db, "polls/" + id + "/config"), (snap) => {
+      const cfg = snap.val();
+      if (!cfg) { document.body.innerHTML = '<div class="err">Poll not found.</div>'; return; }
+      qEl.textContent = cfg.question;
+      if (cfg.type === "mc") renderMC(cfg); else renderText();
+    }, { onlyOnce: true });
+  }
+
+  function renderText() {
+    sub.textContent = "Appears anonymously on the screen. Add as many as you like.";
+    ui.innerHTML = '<textarea id="text" placeholder="Type here…" autofocus></textarea>' +
+                   '<button id="send" style="margin-top:14px;width:100%">Send</button>';
+    const text = document.getElementById("text"), btn = document.getElementById("send");
     async function send() {
-      const text = textEl.value.trim();
-      if (!text) return;
+      const v = text.value.trim(); if (!v) return;
       btn.disabled = true;
-      try {
-        await push(ref(db, "messages"), { text, ts: Date.now() });
-        textEl.value = "";
-        ok.textContent = "✓ Sent! Add another if you like.";
-      } catch (e) {
-        ok.textContent = "Couldn't send: " + e.message;
-      } finally {
-        btn.disabled = false;
-        textEl.focus();
-      }
+      try { await push(ref(db, "polls/" + id + "/responses"), { text: v, ts: Date.now() });
+            text.value = ""; ok.textContent = "✓ Sent! Add another if you like."; }
+      catch (e) { ok.textContent = "Couldn't send: " + e.message; }
+      finally { btn.disabled = false; text.focus(); }
     }
-    btn.addEventListener("click", send);
-    // Cmd/Ctrl+Enter to send
-    textEl.addEventListener("keydown", (e) => {
-      if ((e.metaKey || e.ctrlKey) && e.key === "Enter") send();
+    btn.onclick = send;
+    text.addEventListener("keydown", e => { if ((e.metaKey || e.ctrlKey) && e.key === "Enter") send(); });
+  }
+
+  function renderMC(cfg) {
+    const opts = cfg.options || [];
+    const votedKey = "voted_" + id;
+    const already = localStorage.getItem(votedKey);
+    sub.textContent = already ? "" : "Tap your choice.";
+    ui.style.display = "flex"; ui.style.flexDirection = "column"; ui.style.gap = "12px";
+    ui.innerHTML = "";
+    opts.forEach((label, i) => {
+      const b = document.createElement("button");
+      b.className = "opt"; b.textContent = label;
+      if (already === String(i)) b.classList.add("chosen");
+      b.onclick = async () => {
+        [...ui.children].forEach(c => c.classList.remove("chosen"));
+        b.classList.add("chosen"); b.disabled = false;
+        try {
+          await push(ref(db, "polls/" + id + "/responses"), { choice: i, ts: Date.now() });
+          localStorage.setItem(votedKey, String(i));
+          ok.textContent = "✓ Voted: " + label;
+        } catch (e) { ok.textContent = "Couldn't send: " + e.message; }
+      };
+      ui.appendChild(b);
     });
+    if (already !== null) ok.textContent = "✓ You voted: " + (opts[already] ?? "") + ". Tap again to change.";
   }
 </script>
 </body>

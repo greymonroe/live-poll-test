@@ -1,39 +1,53 @@
 # live-poll-test
 
-A dead-simple, self-hosted, free live audience-response wall. The Slido replacement
-feasibility test: **QR on the screen → student types text on their phone → it pops up
-live on the screen.** Static page on GitHub Pages + Firebase Realtime Database as the
-only backend. No build step, no server.
+A free, self-hosted live audience-response tool — an owned alternative to Slido/Mentimeter.
+Static pages on GitHub Pages + one Firebase Realtime Database. No build step, no server.
 
-## Files
-- `index.html` — **display view** (big screen): shows the QR code + the live wall.
-- `submit.html` — **participant view** (phone): text box + Send.
-- `firebase-config.js` — paste your Firebase project config here once (instructions inside).
+**One database holds many polls.** You set Firebase up once, then create as many polls as
+you want from the control panel — each gets its own QR code. The Firebase setup is NOT
+per-poll.
 
-## One-time setup (~5 min)
-1. Create a Firebase project + a **Realtime Database** in *Test mode*, and register a
-   Web app — full click-by-click steps are at the top of `firebase-config.js`.
-2. Paste the config values into `firebase-config.js`.
-3. Open `index.html` (locally or on GitHub Pages). Scan the QR with your phone, type
-   something, hit Send — it appears on the screen.
+## Pages
+- `index.html` — **control panel**: create polls, list them, get each one's display/phone links + QR.
+- `display.html?poll=ID` — **big screen** for one poll: QR + live results (text wall or bar chart).
+- `submit.html?poll=ID` — **phone view**: text box (text poll) or tappable options (multiple choice).
+- `app.js` — shared helpers + Firebase init.
+- `firebase-config.js` — paste your Firebase config here once (instructions inside).
 
-## Run locally first
+## Data model (Firebase Realtime Database)
 ```
-cd ~/repos/live-poll-test
-python3 -m http.server 8000
+polls/
+  <pollId>/
+    config/      { type: "text"|"mc", question, options?[], created }
+    responses/   push-list of { text } (text) or { choice: <optionIndex> } (mc)
 ```
-Then open http://localhost:8000 on your laptop. To test the phone round-trip on the
-same wifi, open http://<your-laptop-IP>:8000/submit.html on your phone.
-(`file://` won't work — ES module imports need to be served over http.)
+To add a poll type later (word cloud, rating, quiz…), add a `type` and render it in
+display.html / submit.html. The database stays the same — poll "type" is just rendering.
 
-## Deploy to GitHub Pages
-Pushed to `greymonroe/live-poll-test`, Pages serves it at
+## Use it
+1. Open `index.html` (the control panel).
+2. Pick a type, type a question (+ options for multiple choice), Create.
+3. Click **Open display** on the screen; people scan the QR or tap **Phone view**.
+
+## Limits (Firebase free "Spark" plan)
+- Storage 1 GB, download 10 GB/mo — irrelevant for text/vote data (store hundreds of thousands).
+- **100 simultaneous connections** — the real ceiling. Fine for a class; only bites if many
+  live sessions run at the same instant totalling 100+ connected devices.
+- No payment method on Spark = cannot be billed. If you ever upgrade to Blaze, lock the DB
+  rules down first.
+
+## Run locally
+```
+cd ~/repos/live-poll-test && python3 -m http.server 8000
+```
+Open http://localhost:8000 . (`file://` won't work — ES modules need http.)
+
+## Live
 https://greymonroe.github.io/live-poll-test/
 
-## Notes / current scope
-- **Open feed, no moderation** — anything submitted shows instantly. Fine for a
-  feasibility test; add approve-before-show before using with a rowdy class.
-- Test-mode database rules are **open to the public**. That's deliberate for now.
-  Don't put anything sensitive in it; lock down the rules before real classroom use.
-- The QR/join link is computed from the display page's own URL, so it works both
-  locally and on Pages with no editing.
+## Current scope / TODO before real classroom use
+- DB rules are wide open (anyone with a link can read/write). Tighten to "append-only short
+  messages, no full-tree read/delete" before pointing a real class at it.
+- One-vote-per-person is a soft localStorage guard only (clears if they switch devices/clear data).
+- Possible next types: word cloud, 1–5 rating, ranking, quiz-with-leaderboard, Q&A + upvotes.
+- Moderation (approve-before-show) toggle.
