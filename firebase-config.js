@@ -19,11 +19,11 @@
 // ─────────────────────────────────────────────────────────────────────────
 
 export const firebaseConfig = {
-  apiKey:            "PASTE_ME",
-  authDomain:        "PASTE_ME",
-  databaseURL:       "PASTE_ME",
-  projectId:         "PASTE_ME",
-  storageBucket:     "PASTE_ME",
-  messagingSenderId: "PASTE_ME",
-  appId:             "PASTE_ME"
+  apiKey:            "AIzaSyBhcWFAF48VN-D8h2lBnVi5TdUWmMxBc4LE",
+  authDomain:        "live-poll-8088d.firebaseapp.com",
+  databaseURL:       "https://live-poll-8088d-default-rtdb.firebaseio.com",
+  projectId:         "live-poll-8088d",
+  storageBucket:     "live-poll-8088d.firebasestorage.app",
+  messagingSenderId: "1037141242834",
+  appId:             "1:1037141242834:web:5a1f81d86c5ec0a6a8e0b"
 };
