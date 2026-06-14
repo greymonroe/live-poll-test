@@ -1,0 +1,316 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Quiz — Host</title>
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; }
+  body { margin:0; min-height:100vh; display:flex; flex-direction:column;
+         font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
+         background:#0d1117; color:#e6edf3; }
+  header { display:flex; align-items:center; gap:20px; padding:18px 32px;
+           border-bottom:1px solid #21262d; flex:0 0 auto; }
+  header h1 { font-size:22px; margin:0; }
+  header .meta { margin-left:auto; color:#8b949e; font-size:14px; white-space:nowrap; }
+  main { flex:1 1 auto; padding:28px 32px; overflow-y:auto; }
+  .err { color:#f85149; padding:32px; font-size:18px; }
+  .empty { color:#6e7681; font-size:22px; margin:auto; text-align:center; }
+
+  /* Lobby */
+  .lobby { display:flex; gap:40px; flex-wrap:wrap; align-items:flex-start; }
+  .qr { background:#fff; padding:14px; border-radius:14px; flex:0 0 auto; }
+  .joinurl { margin-top:14px; font-size:16px; color:#8b949e; }
+  .joinurl b { color:#58a6ff; }
+  .players { flex:1 1 320px; }
+  .players h2 { font-size:16px; color:#8b949e; font-weight:600; margin:0 0 12px; }
+  .pgrid { display:flex; flex-wrap:wrap; gap:10px; }
+  .pchip { background:#161b22; border:1px solid #21262d; border-radius:999px;
+           padding:8px 16px; font-size:16px; font-weight:600;
+           animation:pop .3s cubic-bezier(.2,.8,.2,1); }
+  @keyframes pop { from{opacity:0;transform:scale(.9);} to{opacity:1;transform:none;} }
+
+  /* Question / reveal */
+  .qtext { font-size:clamp(24px,3.4vw,46px); font-weight:700; line-height:1.2;
+           margin:0 0 28px; max-width:1200px; }
+  .tiles { display:grid; grid-template-columns:repeat(2,1fr); gap:18px; max-width:1100px; }
+  .tile { display:flex; align-items:center; gap:16px; padding:22px 26px; border-radius:16px;
+          font-size:clamp(18px,2.2vw,30px); font-weight:700; color:#fff; position:relative;
+          min-height:90px; transition:opacity .25s, transform .25s; }
+  .tile .letter { font-size:1.3em; font-weight:800; opacity:.85; min-width:1.2em; }
+  .tile .txt { flex:1 1 auto; word-break:break-word; }
+  .tile .bar { position:absolute; left:0; bottom:0; height:6px; background:rgba(255,255,255,.85);
+               width:0; border-radius:0 0 0 16px; transition:width .5s cubic-bezier(.2,.8,.2,1); }
+  .tile .cnt { font-size:.7em; opacity:.9; font-weight:700; }
+  .c0 { background:#e23b4d; } .c1 { background:#1f6feb; }
+  .c2 { background:#d9a420; } .c3 { background:#2ea043; }
+  .tile.dim { opacity:.32; }
+  .tile.win { outline:4px solid #fff; box-shadow:0 0 0 6px rgba(255,255,255,.15); }
+  .tile .check { font-size:1.1em; }
+
+  .controls { margin-top:30px; display:flex; gap:14px; align-items:center; flex-wrap:wrap; }
+  button { padding:16px 30px; font-size:18px; font-weight:700; border:none; border-radius:12px;
+           background:#238636; color:#fff; cursor:pointer; }
+  button.sec { background:#21262d; color:#e6edf3; border:1px solid #30363d; }
+  button:disabled { opacity:.5; cursor:default; }
+  .answered { font-size:20px; color:#8b949e; }
+  .answered b { color:#e6edf3; }
+
+  /* Leaderboard */
+  .board { max-width:760px; margin:0 auto; display:flex; flex-direction:column; gap:12px; }
+  .board h2 { text-align:center; font-size:clamp(24px,3vw,40px); margin:0 0 18px; }
+  .row { display:flex; align-items:center; gap:18px; background:#161b22; border:1px solid #21262d;
+         border-radius:14px; padding:16px 22px; font-size:clamp(18px,2vw,26px);
+         animation:pop .3s cubic-bezier(.2,.8,.2,1); }
+  .row .rank { font-weight:800; color:#8b949e; min-width:1.6em; }
+  .row .nm { flex:1 1 auto; font-weight:700; }
+  .row .sc { font-weight:800; color:#58a6ff; }
+  .row.top1 { border-color:#d9a420; } .row.top1 .rank { color:#d9a420; }
+  .row.top2 { border-color:#8b949e; } .row.top3 { border-color:#b06a2c; }
+  .center { text-align:center; }
+</style>
+</head>
+<body>
+<header>
+  <h1 id="title">Quiz</h1>
+  <div class="meta" id="meta"></div>
+</header>
+<main id="main"><div class="empty">Loading…</div></main>
+
+<script src="https://cdn.jsdelivr.net/gh/davidshimjs/qrcodejs@04f46c6a/qrcode.min.js"></script>
+<script type="module">
+  import { db, configured, pageURL, makeQR, notConfigured } from "./app.js";
+  import { ref, set, update, get, onValue }
+    from "https://www.gstatic.com/firebasejs/10.12.2/firebase-database.js";
+
+  const LIMIT = 20;           // seconds; full speed bonus window
+  const MAX_POINTS = 1000;
+
+  const id = new URLSearchParams(location.search).get("quiz");
+  const main = document.getElementById("main");
+  const metaEl = document.getElementById("meta");
+
+  if (!configured) { notConfigured(); }
+  else if (!id) {
+    main.innerHTML = '<div class="err">No quiz specified. Open this as quiz.html?quiz=ID.</div>';
+  } else {
+    boot();
+  }
+
+  let config = null;
+  const base = "quizzes/" + id;
+  const LETTERS = ["A", "B", "C", "D"];
+
+  async function boot() {
+    const snap = await get(ref(db, base + "/config"));
+    config = snap.val();
+    if (!config) { main.innerHTML = '<div class="err">Quiz "' + id + '" not found.</div>'; return; }
+    document.getElementById("title").textContent = config.title || id;
+
+    // Track players for live lobby + leaderboards.
+    onValue(ref(db, base + "/players"), (s) => { players = s.val() || {}; renderForState(); });
+    // React to host-written state.
+    onValue(ref(db, base + "/state"), (s) => { state = s.val(); renderForState(); });
+  }
+
+  let state = null, players = {}, answersUnsub = null, currentAnswers = {}, watchingQ = -1;
+
+  function setState(patch) {
+    const next = Object.assign({}, state, patch);
+    set(ref(db, base + "/state"), next);   // optimistic; onValue confirms
+  }
+
+  // Subscribe to answers for the current question (live counter / reveal data).
+  function watchAnswers(qi) {
+    if (watchingQ === qi && answersUnsub) return;
+    if (answersUnsub) { answersUnsub(); answersUnsub = null; }
+    watchingQ = qi; currentAnswers = {};
+    answersUnsub = onValue(ref(db, base + "/answers/" + qi), (s) => {
+      currentAnswers = s.val() || {};
+      if (state && (state.phase === "question" || state.phase === "reveal")) renderForState();
+    });
+  }
+
+  function renderForState() {
+    if (!config) return;
+    const phase = state ? state.phase : "lobby";
+    metaEl.textContent = playerCount() + " player" + (playerCount() === 1 ? "" : "s");
+    if (phase === "lobby" || !state) return renderLobby();
+    if (phase === "question") { watchAnswers(state.q); return renderQuestion(false); }
+    if (phase === "reveal")   { watchAnswers(state.q); return renderQuestion(true); }
+    if (phase === "leaderboard") return renderBoard(false);
+    if (phase === "done")        return renderBoard(true);
+  }
+
+  const playerCount = () => Object.keys(players).length;
+
+  function renderLobby() {
+    const playURL = pageURL("quiz-play.html", id).replace("poll=", "quiz=");
+    const chips = Object.values(players)
+      .map(p => '<span class="pchip">' + esc(p.name) + '</span>').join("");
+    main.innerHTML =
+      '<div class="lobby">' +
+        '<div>' +
+          '<div class="qr" id="qr"></div>' +
+          '<div class="joinurl">Join at <b>' + esc(playURL.replace(/^https?:\/\//, "")) + '</b></div>' +
+        '</div>' +
+        '<div class="players">' +
+          '<h2>Joined (' + playerCount() + ')</h2>' +
+          '<div class="pgrid">' + (chips || '<span class="empty" style="font-size:16px">Waiting for players…</span>') + '</div>' +
+        '</div>' +
+      '</div>' +
+      '<div class="controls">' +
+        '<button id="start"' + (playerCount() ? "" : " disabled") + '>Start quiz</button>' +
+        '<span class="answered">' + config.questions.length + ' questions</span>' +
+      '</div>';
+    makeQR(document.getElementById("qr"), playURL, 200);
+    document.getElementById("start").onclick = () =>
+      setState({ phase: "question", q: 0, startedAt: Date.now() });
+  }
+
+  // pageURL builds ?poll=ID; we want ?quiz=ID. Patch it.
+  // (handled inline above via .replace)
+
+  function renderQuestion(reveal) {
+    const qi = state.q;
+    const q = config.questions[qi];
+    if (!q) return;
+    const counts = optionCounts(q);
+    const totalAns = Object.keys(currentAnswers).length;
+    const maxCount = Math.max(1, ...counts);
+
+    const tiles = q.options.map((opt, i) => {
+      const cls = ["tile", "c" + i];
+      if (reveal) {
+        if (i === q.correct) cls.push("win"); else cls.push("dim");
+      }
+      const widthPct = reveal ? (counts[i] / maxCount * 100) : 0;
+      return '<div class="' + cls.join(" ") + '">' +
+        '<span class="letter">' + LETTERS[i] + '</span>' +
+        '<span class="txt">' + esc(opt) + '</span>' +
+        (reveal ? '<span class="cnt">' + counts[i] + (i === q.correct ? ' <span class="check">✓</span>' : "") + '</span>' : "") +
+        '<span class="bar" style="width:' + widthPct + '%"></span>' +
+      '</div>';
+    }).join("");
+
+    let controls;
+    if (!reveal) {
+      controls =
+        '<span class="answered"><b>' + totalAns + '</b> of <b>' + playerCount() + '</b> answered</span>' +
+        '<button id="reveal">Reveal answer</button>';
+    } else {
+      const last = qi >= config.questions.length - 1;
+      controls = '<button id="board">Show leaderboard</button>';
+    }
+
+    main.innerHTML =
+      '<div class="qprogress answered" style="margin-bottom:14px">Question ' + (qi + 1) +
+        ' of ' + config.questions.length + '</div>' +
+      '<h1 class="qtext">' + esc(q.q) + '</h1>' +
+      '<div class="tiles">' + tiles + '</div>' +
+      '<div class="controls">' + controls + '</div>';
+
+    if (!reveal) {
+      document.getElementById("reveal").onclick = doReveal;
+    } else {
+      document.getElementById("board").onclick = () => setState({ phase: "leaderboard" });
+    }
+  }
+
+  function optionCounts(q) {
+    const counts = new Array(q.options.length).fill(0);
+    Object.values(currentAnswers).forEach(a => {
+      if (a && typeof a.choice === "number" && a.choice >= 0 && a.choice < counts.length)
+        counts[a.choice]++;
+    });
+    return counts;
+  }
+
+  // Award points fresh from the answers for this question. Idempotent:
+  // we recompute each player's awarded points for THIS question and write the
+  // absolute total = base-before-this-q + thisQ. To keep it simple and safe to
+  // run more than once, we track per-question awards under players/<id>/awarded/<q>.
+  async function doReveal() {
+    const qi = state.q;
+    const q = config.questions[qi];
+    const startedAt = state.startedAt || Date.now();
+    // Snapshot answers (use the live copy; also re-get to be safe).
+    const aSnap = await get(ref(db, base + "/answers/" + qi));
+    const answers = aSnap.val() || {};
+
+    const updates = {};
+    for (const [pid, a] of Object.entries(answers)) {
+      if (!a || typeof a.choice !== "number") continue;
+      const correct = a.choice === q.correct;
+      let pts = 0;
+      if (correct) {
+        const elapsed = Math.max(0, ((a.ts || startedAt) - startedAt) / 1000);
+        const frac = Math.min(elapsed, LIMIT) / LIMIT;
+        pts = Math.round(MAX_POINTS * (1 - 0.5 * frac));
+      }
+      const prevAward = (players[pid] && players[pid].awarded && players[pid].awarded[qi]) || 0;
+      const prevScore = (players[pid] && typeof players[pid].score === "number") ? players[pid].score : 0;
+      // Replace any prior award for this q so re-reveal stays correct (idempotent).
+      const newScore = prevScore - prevAward + pts;
+      updates["players/" + pid + "/score"] = newScore;
+      updates["players/" + pid + "/awarded/" + qi] = pts;
+    }
+    if (Object.keys(updates).length) await update(ref(db, base), updates);
+    setState({ phase: "reveal" });
+  }
+
+  function renderBoard(done) {
+    const ranked = Object.values(players)
+      .map(p => ({ name: p.name, score: typeof p.score === "number" ? p.score : 0 }))
+      .sort((a, b) => b.score - a.score);
+    const top = ranked.slice(0, done ? 8 : 8);
+    const qi = state.q;
+    const last = qi >= config.questions.length - 1;
+
+    const rows = top.map((p, i) => {
+      const cls = ["row"];
+      if (i === 0) cls.push("top1"); else if (i === 1) cls.push("top2"); else if (i === 2) cls.push("top3");
+      const medal = i === 0 ? "🥇" : i === 1 ? "🥈" : i === 2 ? "🥉" : (i + 1);
+      return '<div class="' + cls.join(" ") + '">' +
+        '<span class="rank">' + medal + '</span>' +
+        '<span class="nm">' + esc(p.name) + '</span>' +
+        '<span class="sc">' + p.score + '</span>' +
+      '</div>';
+    }).join("");
+
+    let controls;
+    if (done) {
+      controls = '<button class="sec" id="restart">Back to lobby</button>';
+    } else if (last) {
+      controls = '<button id="finish">Finish 🏁</button>';
+    } else {
+      controls = '<button id="next">Next question →</button>';
+    }
+
+    main.innerHTML =
+      '<div class="board">' +
+        '<h2>' + (done ? "🏆 Final results" : "Leaderboard") + '</h2>' +
+        (rows || '<div class="center empty" style="font-size:18px">No players</div>') +
+      '</div>' +
+      '<div class="controls center" style="justify-content:center">' + controls + '</div>';
+
+    if (done) {
+      document.getElementById("restart").onclick = () =>
+        set(ref(db, base + "/state"), { phase: "lobby", q: 0, startedAt: 0 });
+    } else if (last) {
+      document.getElementById("finish").onclick = () => setState({ phase: "done" });
+    } else {
+      document.getElementById("next").onclick = () =>
+        setState({ phase: "question", q: qi + 1, startedAt: Date.now() });
+    }
+  }
+
+  function esc(s) {
+    return String(s == null ? "" : s)
+      .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;");
+  }
+</script>
+</body>
+</html>

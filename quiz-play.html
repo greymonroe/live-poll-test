@@ -1,0 +1,267 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+<title>Quiz — Play</title>
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; }
+  body { margin:0; min-height:100vh; display:flex; flex-direction:column; justify-content:center;
+         gap:16px; padding:22px; font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
+         background:#0d1117; color:#e6edf3; }
+  h1 { font-size:22px; margin:0; line-height:1.25; }
+  p.sub { margin:0; color:#8b949e; font-size:15px; line-height:1.4; }
+  input { width:100%; padding:16px; font-size:18px; border-radius:14px;
+          border:1px solid #30363d; background:#161b22; color:#e6edf3; }
+  button.go { padding:18px; font-size:19px; font-weight:700; border:none; border-radius:14px;
+              background:#238636; color:#fff; cursor:pointer; width:100%; }
+  button.go:disabled { opacity:.5; }
+  .tiles { display:grid; grid-template-columns:repeat(2,1fr); gap:12px; }
+  .tile { display:flex; align-items:center; gap:10px; padding:20px 16px; border-radius:16px;
+          font-size:18px; font-weight:700; color:#fff; border:none; cursor:pointer;
+          min-height:88px; text-align:left; transition:opacity .2s, transform .1s; }
+  .tile:active { transform:scale(.97); }
+  .tile .letter { font-size:1.3em; font-weight:800; opacity:.85; }
+  .tile .txt { flex:1 1 auto; word-break:break-word; }
+  .c0 { background:#e23b4d; } .c1 { background:#1f6feb; }
+  .c2 { background:#d9a420; } .c3 { background:#2ea043; }
+  .tile.dim { opacity:.35; } .tile.picked { outline:4px solid #fff; }
+  .tile:disabled { cursor:default; }
+  .card { background:#161b22; border:1px solid #21262d; border-radius:16px; padding:26px 22px;
+          text-align:center; }
+  .big { font-size:24px; font-weight:800; margin:0 0 8px; }
+  .right { color:#3fb950; } .wrong { color:#f85149; }
+  .score { font-size:34px; font-weight:800; color:#58a6ff; margin:10px 0 0; }
+  .muted { color:#8b949e; font-size:15px; }
+  .err { color:#f85149; font-size:15px; line-height:1.5; }
+  .you { color:#8b949e; font-size:14px; text-align:center; }
+</style>
+</head>
+<body>
+  <div id="root"><div class="muted">Loading…</div></div>
+
+<script type="module">
+  import { db, configured, notConfigured } from "./app.js";
+  import { ref, set, get, push, onValue }
+    from "https://www.gstatic.com/firebasejs/10.12.2/firebase-database.js";
+
+  const id = new URLSearchParams(location.search).get("quiz");
+  const root = document.getElementById("root");
+  const LETTERS = ["A", "B", "C", "D"];
+
+  if (!configured) { notConfigured(); }
+  else if (!id) {
+    root.innerHTML = '<div class="err">No quiz specified. Scan the QR on the screen.</div>';
+  } else {
+    boot();
+  }
+
+  const base = "quizzes/" + id;
+  const idKey  = "quizid_" + id;     // stored player push id
+  const nameKey = "quizname_" + id;  // stored player name
+
+  let config = null, state = null, myId = null, myName = null;
+  let lastQ = -1, locked = false, myChoice = null;
+
+  async function boot() {
+    const snap = await get(ref(db, base + "/config"));
+    config = snap.val();
+    if (!config) { root.innerHTML = '<div class="err">Quiz not found.</div>'; return; }
+
+    myId = localStorage.getItem(idKey);
+    myName = localStorage.getItem(nameKey);
+
+    if (myId) {
+      // Confirm we still exist server-side (host may have reset to lobby/cleared).
+      const me = await get(ref(db, base + "/players/" + myId));
+      if (!me.exists()) {
+        // Re-register with the same stored name (or fall through to name prompt).
+        if (myName) await registerWith(myName, myId);
+      }
+    }
+
+    if (!myId || !myName) { renderName(); }
+    listen();
+  }
+
+  function listen() {
+    onValue(ref(db, base + "/state"), (s) => {
+      state = s.val();
+      // Reset answer lock when the question index changes.
+      const qi = state && typeof state.q === "number" ? state.q : -1;
+      if (!state || state.phase === "lobby") { lastQ = -1; locked = false; myChoice = null; }
+      else if (qi !== lastQ) { lastQ = qi; locked = hasAnsweredLocally(qi); myChoice = answeredChoice(qi); }
+      render();
+    });
+  }
+
+  function answeredKey(qi) { return "quizans_" + id + "_" + qi; }
+  function hasAnsweredLocally(qi) { return localStorage.getItem(answeredKey(qi)) !== null; }
+  function answeredChoice(qi) {
+    const v = localStorage.getItem(answeredKey(qi));
+    return v === null ? null : Number(v);
+  }
+
+  // ---- name / registration ----
+  function renderName() {
+    root.innerHTML =
+      '<h1>' + esc(config.title || "Quiz") + '</h1>' +
+      '<p class="sub">Enter a name to join.</p>' +
+      '<input id="nm" placeholder="Your name" autocomplete="off" maxlength="24" autofocus>' +
+      '<button class="go" id="join" style="margin-top:6px">Join</button>' +
+      '<div class="err" id="nerr"></div>';
+    const input = document.getElementById("nm");
+    const btn = document.getElementById("join");
+    if (myName) input.value = myName;
+    async function join() {
+      const v = input.value.trim();
+      if (!v) { input.focus(); return; }
+      btn.disabled = true;
+      try { await registerWith(v, null); render(); }
+      catch (e) { document.getElementById("nerr").textContent = "Couldn't join: " + e.message; btn.disabled = false; }
+    }
+    btn.onclick = join;
+    input.addEventListener("keydown", e => { if (e.key === "Enter") join(); });
+  }
+
+  async function registerWith(name, existingId) {
+    let pid = existingId;
+    if (!pid) {
+      pid = push(ref(db, base + "/players")).key;
+    }
+    // Preserve score if the node already exists; otherwise start at 0.
+    let score = 0;
+    const existing = await get(ref(db, base + "/players/" + pid));
+    if (existing.exists() && typeof existing.val().score === "number") score = existing.val().score;
+    await set(ref(db, base + "/players/" + pid), { name, score });
+    myId = pid; myName = name;
+    localStorage.setItem(idKey, pid);
+    localStorage.setItem(nameKey, name);
+  }
+
+  // ---- main render by phase ----
+  function render() {
+    if (!myId || !myName) { renderName(); return; }
+    const phase = state ? state.phase : "lobby";
+    if (phase === "lobby" || !state) return renderLobby();
+    if (phase === "question") return renderQuestion();
+    if (phase === "reveal")   return renderReveal();
+    if (phase === "leaderboard" || phase === "done") return renderRank(phase === "done");
+  }
+
+  function youLine() { return '<div class="you">Playing as <b>' + esc(myName) + '</b></div>'; }
+
+  function renderLobby() {
+    root.innerHTML =
+      '<div class="card">' +
+        '<p class="big">You\'re in! 🎉</p>' +
+        '<p class="muted">Waiting for the host to start…</p>' +
+      '</div>' + youLine();
+  }
+
+  function renderQuestion() {
+    const qi = state.q;
+    const q = config.questions[qi];
+    if (!q) { root.innerHTML = '<div class="muted">Waiting…</div>'; return; }
+
+    if (locked) {
+      root.innerHTML =
+        '<div class="card">' +
+          '<p class="big">Answer locked ✓</p>' +
+          '<p class="muted">' + (myChoice != null ? "You picked " + LETTERS[myChoice] : "") + ' — waiting for others…</p>' +
+        '</div>' + youLine();
+      return;
+    }
+
+    const tiles = q.options.map((opt, i) =>
+      '<button class="tile c' + i + '" data-i="' + i + '">' +
+        '<span class="letter">' + LETTERS[i] + '</span>' +
+        '<span class="txt">' + esc(opt) + '</span>' +
+      '</button>').join("");
+    root.innerHTML =
+      '<h1>Q' + (qi + 1) + '. ' + esc(q.q) + '</h1>' +
+      '<p class="sub">Tap your answer.</p>' +
+      '<div class="tiles">' + tiles + '</div>' + youLine();
+
+    root.querySelectorAll(".tile").forEach(b => {
+      b.onclick = () => submitAnswer(qi, Number(b.dataset.i));
+    });
+  }
+
+  async function submitAnswer(qi, choice) {
+    if (locked) return;
+    locked = true; myChoice = choice;
+    // Lock UI immediately.
+    render();
+    try {
+      // Write once; if it already exists server-side, leave it (first answer wins).
+      const aref = ref(db, base + "/answers/" + qi + "/" + myId);
+      const existing = await get(aref);
+      if (!existing.exists()) {
+        await set(aref, { choice, ts: Date.now() });
+      } else {
+        myChoice = existing.val().choice;
+      }
+      localStorage.setItem(answeredKey(qi), String(myChoice));
+    } catch (e) {
+      // On failure, unlock so they can retry.
+      locked = false; myChoice = null;
+      root.innerHTML = '<div class="err">Couldn\'t send: ' + esc(e.message) + '. Tap to retry.</div>';
+      setTimeout(render, 1200);
+    }
+  }
+
+  async function renderReveal() {
+    const qi = state.q;
+    const q = config.questions[qi];
+    const me = await get(ref(db, base + "/players/" + myId));
+    const score = me.exists() && typeof me.val().score === "number" ? me.val().score : 0;
+
+    const choice = answeredChoice(qi);
+    let body;
+    if (choice == null) {
+      body = '<p class="big muted">No answer this round</p>' +
+             '<p class="muted">Correct was ' + LETTERS[q.correct] + ': ' + esc(q.options[q.correct]) + '</p>';
+    } else if (choice === q.correct) {
+      body = '<p class="big right">Correct! ✓</p>' +
+             '<p class="muted">' + LETTERS[q.correct] + ': ' + esc(q.options[q.correct]) + '</p>';
+    } else {
+      body = '<p class="big wrong">Not quite ✗</p>' +
+             '<p class="muted">You picked ' + LETTERS[choice] + '. Correct was ' +
+             LETTERS[q.correct] + ': ' + esc(q.options[q.correct]) + '</p>';
+    }
+    root.innerHTML =
+      '<div class="card">' + body + '<div class="score">' + score + ' pts</div></div>' + youLine();
+  }
+
+  async function renderRank(done) {
+    const snap = await get(ref(db, base + "/players"));
+    const players = snap.val() || {};
+    const ranked = Object.entries(players)
+      .map(([pid, p]) => ({ pid, name: p.name, score: typeof p.score === "number" ? p.score : 0 }))
+      .sort((a, b) => b.score - a.score);
+    const myRank = ranked.findIndex(p => p.pid === myId) + 1;
+    const myScore = (players[myId] && typeof players[myId].score === "number") ? players[myId].score : 0;
+    const total = ranked.length;
+    const medal = myRank === 1 ? "🥇" : myRank === 2 ? "🥈" : myRank === 3 ? "🥉" : "#" + myRank;
+
+    root.innerHTML =
+      '<div class="card">' +
+        '<p class="big">' + (done ? "🏁 Final" : "Leaderboard") + '</p>' +
+        '<p class="big">' + (myRank > 0 ? medal : "—") + '</p>' +
+        '<p class="muted">' + (myRank > 0 ? ("Rank " + myRank + " of " + total) : "Not ranked") + '</p>' +
+        '<div class="score">' + myScore + ' pts</div>' +
+        (done && myRank === 1 ? '<p class="muted">You won! 🎉</p>' : '') +
+        (!done ? '<p class="muted" style="margin-top:10px">Next question coming up…</p>' : '') +
+      '</div>' + youLine();
+  }
+
+  function esc(s) {
+    return String(s == null ? "" : s)
+      .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;");
+  }
+</script>
+</body>
+</html>

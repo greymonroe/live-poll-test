@@ -48,13 +48,18 @@
       const cfg = snap.val();
       if (!cfg) { document.body.innerHTML = '<div class="err">Poll not found.</div>'; return; }
       qEl.textContent = cfg.question;
-      if (cfg.type === "mc") renderMC(cfg); else renderText();
+      if (cfg.type === "mc") renderMC(cfg);
+      else if (cfg.type === "wordcloud") renderText(true);
+      else renderText(false);
     }, { onlyOnce: true });
   }
 
-  function renderText() {
-    sub.textContent = "Appears anonymously on the screen. Add as many as you like.";
-    ui.innerHTML = '<textarea id="text" placeholder="Type here…" autofocus></textarea>' +
+  function renderText(wordcloud) {
+    sub.textContent = wordcloud
+      ? "Type a word or short phrase. Appears on the screen. Add as many as you like."
+      : "Appears anonymously on the screen. Add as many as you like.";
+    const placeholder = wordcloud ? "Type a word or short phrase…" : "Type here…";
+    ui.innerHTML = '<textarea id="text" placeholder="' + placeholder + '" autofocus></textarea>' +
                    '<button id="send" style="margin-top:14px;width:100%">Send</button>';
     const text = document.getElementById("text"), btn = document.getElementById("send");
     async function send() {
