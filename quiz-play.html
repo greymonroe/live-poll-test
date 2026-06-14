@@ -108,7 +108,11 @@
     });
   }
 
-  function answeredKey(qi) { return "quizans_" + id + "_" + qi; }
+  // Key the local answer-lock to THIS question-launch (startedAt), not just the
+  // quiz id + index. Reusing a quiz / resetting gives each question a new
+  // startedAt, so a fresh game never inherits a previous game's locked answer.
+  function roundTag() { return (state && state.startedAt) ? state.startedAt : 0; }
+  function answeredKey(qi) { return "quizans_" + id + "_" + qi + "_" + roundTag(); }
   function hasAnsweredLocally(qi) { return localStorage.getItem(answeredKey(qi)) !== null; }
   function answeredChoice(qi) {
     const v = localStorage.getItem(answeredKey(qi));
