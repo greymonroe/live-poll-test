@@ -23,22 +23,62 @@
   button.danger { background:#3d1418; color:#f85149; }
   a.btnlink { text-decoration:none; }
   .empty { color:#6e7681; }
+  .hb { font-size:13px; color:#3fb950; font-weight:700; margin-right:8px; }
+  .hb-btn { padding:7px 14px; font-size:13px; font-weight:600; border:1px solid #30363d;
+            border-radius:8px; background:#21262d; color:#e6edf3; cursor:pointer; }
 </style>
 </head>
 <body>
   <h1>🗳️ Polls</h1>
   <p class="sub">Polls are created by a Claude Code agent (e.g. <code>python3 newpoll.py mc q1 "Question?" "A" "B"</code>). This page just lists them so you can open a display, grab a QR, or clear results.</p>
+  <div id="hostbar" style="margin-bottom:20px"></div>
   <div id="list"><p class="empty">Loading…</p></div>
 
 <script src="https://cdn.jsdelivr.net/gh/davidshimjs/qrcodejs@04f46c6a/qrcode.min.js"></script>
 <script type="module">
-  import { db, configured, pageURL, makeQR, notConfigured } from "./app.js";
-  import { ref, remove, onValue }
+  import { db, pageURL, makeQR, requireAuth, renderHostBar } from "./app.js";
+  import { ref, remove, get, onValue }
     from "https://www.gstatic.com/firebasejs/10.12.2/firebase-database.js";
 
-  if (!configured) notConfigured();
   const list = document.getElementById("list");
+  let isHost = false;
 
+  start();
+
+  async function start() {
+    if (!(await requireAuth())) return;
+    const bar = document.getElementById("hostbar");
+    isHost = await renderHostBar(bar);
+    if (isHost) addWipeAll(bar);
+    watchPolls();
+  }
+
+  // Panic button: erase every nickname, answer, and score across all quizzes,
+  // without touching the questions. Normally unnecessary — the host screen
+  // already wipes at the end of each game — but it makes "nothing is retained"
+  // something you can verify and enforce in one click.
+  function addWipeAll(bar) {
+    const b = document.createElement("button");
+    b.className = "secondary danger";
+    b.style.marginLeft = "10px";
+    b.textContent = "Erase all player names";
+    b.onclick = async () => {
+      if (!confirm("Erase nicknames, answers, and scores from every quiz? Questions are kept.")) return;
+      b.disabled = true;
+      const snap = await get(ref(db, "quizzes"));
+      const ids = Object.keys(snap.val() || {});
+      await Promise.all(ids.flatMap(q => [
+        remove(ref(db, "quizzes/" + q + "/players")),
+        remove(ref(db, "quizzes/" + q + "/answers")),
+        remove(ref(db, "quizzes/" + q + "/state")),
+      ]));
+      b.disabled = false;
+      b.textContent = "Erased ✓ (" + ids.length + " quizzes)";
+    };
+    bar.appendChild(b);
+  }
+
+  function watchPolls() {
   onValue(ref(db, "polls"), (snap) => {
     const polls = snap.val() || {};
     const ids = Object.keys(polls).sort((a, b) =>
@@ -58,23 +98,30 @@
           '<div class="links">' +
             '<a class="btnlink" target="_blank" href="' + pageURL("display.html", id) + '"><button class="secondary">📺 Open display</button></a>' +
             '<a class="btnlink" target="_blank" href="' + pageURL("submit.html", id) + '"><button class="secondary">📱 Phone view</button></a>' +
-            '<button class="secondary warn" data-clear="' + id + '">Clear results</button>' +
-            '<button class="secondary danger" data-del="' + id + '">Delete poll</button>' +
+            (isHost
+              ? '<button class="secondary warn" data-clear="' + id + '">Clear results</button>' +
+                '<button class="secondary danger" data-del="' + id + '">Delete poll</button>'
+              : '') +
           '</div>' +
         '</div>';
       row.querySelector(".q").textContent = c.question;
       makeQR(row.querySelector(".qr"), pageURL("submit.html", id), 90);
-      row.querySelector("[data-clear]").onclick = async () => {
-        if (confirm('Clear all results for "' + c.question + '"?'))
-          await remove(ref(db, "polls/" + id + "/responses"));
-      };
-      row.querySelector("[data-del]").onclick = async () => {
-        if (confirm('Delete poll "' + c.question + '" and all its responses?'))
-          await remove(ref(db, "polls/" + id));
-      };
+      // Clearing and deleting are host-only — the rules reject them from any
+      // other session, so there is no point offering the buttons.
+      if (isHost) {
+        row.querySelector("[data-clear]").onclick = async () => {
+          if (confirm('Clear all results for "' + c.question + '"?'))
+            await remove(ref(db, "polls/" + id + "/responses"));
+        };
+        row.querySelector("[data-del]").onclick = async () => {
+          if (confirm('Delete poll "' + c.question + '" and all its responses?'))
+            await remove(ref(db, "polls/" + id));
+        };
+      }
       list.appendChild(row);
     }
   });
+  }
 </script>
 </body>
 </html>

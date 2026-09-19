@@ -18,6 +18,11 @@
   .err { color:#f85149; padding:32px; font-size:18px; }
   .empty { color:#6e7681; font-size:22px; margin:auto; text-align:center; }
 
+  /* Host bar */
+  .hb { font-size:13px; color:#3fb950; font-weight:700; }
+  .hb-btn { padding:7px 14px; font-size:13px; font-weight:600; border:1px solid #30363d;
+            border-radius:8px; background:#21262d; color:#e6edf3; cursor:pointer; }
+
   /* Lobby */
   .lobby { display:flex; gap:40px; flex-wrap:wrap; align-items:flex-start; }
   .qr { background:#fff; padding:14px; border-radius:14px; flex:0 0 auto; }
@@ -30,6 +35,7 @@
            padding:8px 16px; font-size:16px; font-weight:600;
            animation:pop .3s cubic-bezier(.2,.8,.2,1); }
   @keyframes pop { from{opacity:0;transform:scale(.9);} to{opacity:1;transform:none;} }
+  .privacy { margin-top:16px; font-size:13px; color:#6e7681; max-width:420px; line-height:1.5; }
 
   /* Question / reveal */
   .qtext { font-size:clamp(24px,3.4vw,46px); font-weight:700; line-height:1.2;
@@ -72,66 +78,96 @@
   .row.top1 { border-color:#d9a420; } .row.top1 .rank { color:#d9a420; }
   .row.top2 { border-color:#8b949e; } .row.top3 { border-color:#b06a2c; }
   .center { text-align:center; }
+  .wiped { text-align:center; color:#6e7681; font-size:15px; margin-top:18px; line-height:1.5; }
 </style>
 </head>
 <body>
 <header>
   <h1 id="title">Quiz</h1>
+  <div id="hostbar"></div>
   <div class="meta" id="meta"></div>
 </header>
 <main id="main"><div class="empty">Loading…</div></main>
 
 <script src="https://cdn.jsdelivr.net/gh/davidshimjs/qrcodejs@04f46c6a/qrcode.min.js"></script>
 <script type="module">
-  import { db, configured, pageURL, makeQR, notConfigured } from "./app.js";
-  import { ref, set, update, get, onValue, remove }
+  import { db, pageURL, makeQR, requireAuth, renderHostBar } from "./app.js";
+  import { ref, set, update, get, onValue, remove, serverTimestamp }
     from "https://www.gstatic.com/firebasejs/10.12.2/firebase-database.js";
 
-  const LIMIT = 20;           // seconds; full speed bonus window
+  const LIMIT = 20;                        // seconds; full speed bonus window
   const MAX_POINTS = 1000;
+  const STALE_MS = 6 * 60 * 60 * 1000;     // a roster older than this is last class's
 
   const id = new URLSearchParams(location.search).get("quiz");
   const main = document.getElementById("main");
   const metaEl = document.getElementById("meta");
 
   let config = null;
+  let KEY = [];                            // correct index per question (host only)
   const base = "quizzes/" + id;
   const LETTERS = ["A", "B", "C", "D"];
 
-  if (!configured) { notConfigured(); }
-  else if (!id) {
-    main.innerHTML = '<div class="err">No quiz specified. Open this as quiz.html?quiz=ID.</div>';
-  } else {
+  let state = null, players = {}, answersUnsub = null, currentAnswers = {}, watchingQ = -1;
+  let finalBoard = null;                   // in-memory copy so the final screen survives the wipe
+
+  start();
+
+  async function start() {
+    const user = await requireAuth();
+    if (!user) return;
+    const host = await renderHostBar(document.getElementById("hostbar"));
+    if (!id) {
+      main.innerHTML = '<div class="err">No quiz specified. Open this as quiz.html?quiz=ID.</div>';
+      return;
+    }
+    if (!host) {
+      main.innerHTML = '<div class="err">This is the host screen. Sign in with your Google ' +
+        'account (button above) to run the quiz.</div>';
+      return;
+    }
     boot();
   }
 
   async function boot() {
-    const snap = await get(ref(db, base + "/config"));
-    config = snap.val();
+    const [cSnap, kSnap] = await Promise.all([
+      get(ref(db, base + "/config")),
+      get(ref(db, base + "/key")),
+    ]);
+    config = cSnap.val();
     if (!config) { main.innerHTML = '<div class="err">Quiz "' + id + '" not found.</div>'; return; }
+    // Quizzes created before the config/key split still carry the answer inline.
+    KEY = kSnap.exists() ? kSnap.val() : config.questions.map(q => q.correct);
     document.getElementById("title").textContent = config.title || id;
 
-    // Track players for live lobby + leaderboards.
+    // Anything left over from a previous session is stale — erase it before the
+    // room fills up, so no name outlives the class it was typed in.
+    const prev = (await get(ref(db, base + "/state"))).val();
+    const age = prev && prev.startedAt ? Date.now() - prev.startedAt : Infinity;
+    if (prev && prev.phase !== "lobby" && age > STALE_MS) await wipeRoster();
+
     onValue(ref(db, base + "/players"), (s) => { players = s.val() || {}; renderForState(); });
-    // React to host-written state.
     onValue(ref(db, base + "/state"), (s) => { state = s.val(); renderForState(); });
   }
 
-  let state = null, players = {}, answersUnsub = null, currentAnswers = {}, watchingQ = -1;
-
   function setState(patch) {
-    const next = Object.assign({}, state, patch);
+    const next = Object.assign({}, state, patch, { count: playerCount() });
     set(ref(db, base + "/state"), next);   // optimistic; onValue confirms
   }
 
-  // Full reset: wipe all players, scores, and answers, back to a clean lobby.
-  // The quiz questions (config) are kept, so you can reuse the same quiz next year.
-  async function resetGame() {
+  // Erase every name, answer, and score. The questions (config/key) are kept so
+  // the same quiz can be run again.
+  async function wipeRoster() {
     await Promise.all([
       remove(ref(db, base + "/players")),
       remove(ref(db, base + "/answers")),
     ]);
-    set(ref(db, base + "/state"), { phase: "lobby", q: 0, startedAt: 0 });
+  }
+
+  async function resetGame() {
+    finalBoard = null;
+    await wipeRoster();
+    set(ref(db, base + "/state"), { phase: "lobby", q: 0, startedAt: 0, count: 0 });
   }
 
   // Subscribe to answers for the current question (live counter / reveal data).
@@ -167,6 +203,8 @@
         '<div>' +
           '<div class="qr" id="qr"></div>' +
           '<div class="joinurl">Join at <b>' + esc(playURL.replace(/^https?:\/\//, "")) + '</b></div>' +
+          '<div class="privacy">Nicknames only, and they are erased from the database ' +
+            'the moment you finish the game. Nothing here is graded or kept.</div>' +
         '</div>' +
         '<div class="players">' +
           '<h2>Joined (' + playerCount() + ')</h2>' +
@@ -180,18 +218,16 @@
       '</div>';
     makeQR(document.getElementById("qr"), playURL, 200);
     document.getElementById("start").onclick = () =>
-      setState({ phase: "question", q: 0, startedAt: Date.now() });
+      setState({ phase: "question", q: 0, startedAt: serverTimestamp(), correct: null, results: null });
     const rb = document.getElementById("reset");
     if (rb) rb.onclick = () => { if (confirm("Clear all joined players and scores?")) resetGame(); };
   }
-
-  // pageURL builds ?poll=ID; we want ?quiz=ID. Patch it.
-  // (handled inline above via .replace)
 
   function renderQuestion(reveal) {
     const qi = state.q;
     const q = config.questions[qi];
     if (!q) return;
+    const answer = KEY[qi];
     const counts = optionCounts(q);
     const totalAns = Object.keys(currentAnswers).length;
     const maxCount = Math.max(1, ...counts);
@@ -199,26 +235,21 @@
     const tiles = q.options.map((opt, i) => {
       const cls = ["tile", "c" + i];
       if (reveal) {
-        if (i === q.correct) cls.push("win"); else cls.push("dim");
+        if (i === answer) cls.push("win"); else cls.push("dim");
       }
       const widthPct = reveal ? (counts[i] / maxCount * 100) : 0;
       return '<div class="' + cls.join(" ") + '">' +
         '<span class="letter">' + LETTERS[i] + '</span>' +
         '<span class="txt">' + esc(opt) + '</span>' +
-        (reveal ? '<span class="cnt">' + counts[i] + (i === q.correct ? ' <span class="check">✓</span>' : "") + '</span>' : "") +
+        (reveal ? '<span class="cnt">' + counts[i] + (i === answer ? ' <span class="check">✓</span>' : "") + '</span>' : "") +
         '<span class="bar" style="width:' + widthPct + '%"></span>' +
       '</div>';
     }).join("");
 
-    let controls;
-    if (!reveal) {
-      controls =
-        '<span class="answered"><b>' + totalAns + '</b> of <b>' + playerCount() + '</b> answered</span>' +
+    const controls = reveal
+      ? '<button id="board">Show leaderboard</button>'
+      : '<span class="answered"><b>' + totalAns + '</b> of <b>' + playerCount() + '</b> answered</span>' +
         '<button id="reveal">Reveal answer</button>';
-    } else {
-      const last = qi >= config.questions.length - 1;
-      controls = '<button id="board">Show leaderboard</button>';
-    }
 
     main.innerHTML =
       '<div class="qprogress answered" style="margin-bottom:14px">Question ' + (qi + 1) +
@@ -231,7 +262,7 @@
     if (!reveal) {
       document.getElementById("reveal").onclick = doReveal;
     } else {
-      document.getElementById("board").onclick = () => setState({ phase: "leaderboard" });
+      document.getElementById("board").onclick = publishRanks;
     }
   }
 
@@ -244,83 +275,114 @@
     return counts;
   }
 
-  // Award points fresh from the answers for this question. Idempotent:
-  // we recompute each player's awarded points for THIS question and write the
-  // absolute total = base-before-this-q + thisQ. To keep it simple and safe to
-  // run more than once, we track per-question awards under players/<id>/awarded/<q>.
+  // Award points fresh from the answers for this question. Idempotent: we
+  // recompute each player's award for THIS question and write the absolute
+  // total = base-before-this-q + thisQ, tracking per-question awards under
+  // players/<uid>/awarded/<q>. Scoring lives here and only here — the rules
+  // make players/<uid>/score host-writable only.
+  //
+  // Revealing also publishes the correct index into state.correct, which is how
+  // phones learn the answer. It is never in the config they download.
   async function doReveal() {
     const qi = state.q;
-    const q = config.questions[qi];
+    const answer = KEY[qi];
     const startedAt = state.startedAt || Date.now();
-    // Snapshot answers (use the live copy; also re-get to be safe).
     const aSnap = await get(ref(db, base + "/answers/" + qi));
     const answers = aSnap.val() || {};
 
     const updates = {};
     for (const [pid, a] of Object.entries(answers)) {
       if (!a || typeof a.choice !== "number") continue;
-      const correct = a.choice === q.correct;
       let pts = 0;
-      if (correct) {
+      if (a.choice === answer) {
+        // a.ts is a server timestamp, so this window can't be gamed client-side.
         const elapsed = Math.max(0, ((a.ts || startedAt) - startedAt) / 1000);
         const frac = Math.min(elapsed, LIMIT) / LIMIT;
         pts = Math.round(MAX_POINTS * (1 - 0.5 * frac));
       }
       const prevAward = (players[pid] && players[pid].awarded && players[pid].awarded[qi]) || 0;
       const prevScore = (players[pid] && typeof players[pid].score === "number") ? players[pid].score : 0;
-      // Replace any prior award for this q so re-reveal stays correct (idempotent).
-      const newScore = prevScore - prevAward + pts;
-      updates["players/" + pid + "/score"] = newScore;
+      updates["players/" + pid + "/score"] = prevScore - prevAward + pts;
       updates["players/" + pid + "/awarded/" + qi] = pts;
     }
     if (Object.keys(updates).length) await update(ref(db, base), updates);
-    setState({ phase: "reveal" });
+    setState({ phase: "reveal", correct: answer });
+  }
+
+  function rankedList() {
+    return Object.entries(players)
+      .map(([pid, p]) => ({ pid, name: p.name, score: typeof p.score === "number" ? p.score : 0 }))
+      .sort((a, b) => b.score - a.score);
+  }
+
+  // Push each player's rank so their phone can show it without reading the
+  // roster (the rules don't let them see anyone else's record).
+  async function publishRanks() {
+    const ranked = rankedList();
+    const updates = {};
+    ranked.forEach((p, i) => { updates["players/" + p.pid + "/rank"] = i + 1; });
+    if (Object.keys(updates).length) await update(ref(db, base), updates);
+    setState({ phase: "leaderboard", count: ranked.length });
+  }
+
+  // End of game: publish anonymous results (uid → rank/score, no names), then
+  // erase the roster. Names live in the database only between "join" and here.
+  async function finishGame() {
+    const ranked = rankedList();
+    finalBoard = ranked;
+    const results = {};
+    ranked.forEach((p, i) => { results[p.pid] = { rank: i + 1, score: p.score }; });
+    await set(ref(db, base + "/state"), {
+      phase: "done", q: state.q, startedAt: state.startedAt || 0,
+      count: ranked.length, results,
+    });
+    await wipeRoster();
   }
 
   function renderBoard(done) {
-    const ranked = Object.values(players)
-      .map(p => ({ name: p.name, score: typeof p.score === "number" ? p.score : 0 }))
-      .sort((a, b) => b.score - a.score);
-    const top = ranked.slice(0, done ? 8 : 8);
+    const ranked = done && finalBoard ? finalBoard : rankedList();
+    const anonymous = done && !finalBoard && state.results;
+    const rows = anonymous
+      ? Object.values(state.results).sort((a, b) => a.rank - b.rank).slice(0, 8)
+          .map(r => boardRow(r.rank - 1, "—", r.score)).join("")
+      : ranked.slice(0, 8).map((p, i) => boardRow(i, p.name, p.score)).join("");
+
     const qi = state.q;
     const last = qi >= config.questions.length - 1;
-
-    const rows = top.map((p, i) => {
-      const cls = ["row"];
-      if (i === 0) cls.push("top1"); else if (i === 1) cls.push("top2"); else if (i === 2) cls.push("top3");
-      const medal = i === 0 ? "🥇" : i === 1 ? "🥈" : i === 2 ? "🥉" : (i + 1);
-      return '<div class="' + cls.join(" ") + '">' +
-        '<span class="rank">' + medal + '</span>' +
-        '<span class="nm">' + esc(p.name) + '</span>' +
-        '<span class="sc">' + p.score + '</span>' +
-      '</div>';
-    }).join("");
-
     let controls;
-    if (done) {
-      controls = '<button id="restart">Reset & start over</button>';
-    } else if (last) {
-      controls = '<button id="finish">Finish 🏁</button>';
-    } else {
-      controls = '<button id="next">Next question →</button>';
-    }
+    if (done) controls = '<button id="restart">Run it again</button>';
+    else if (last) controls = '<button id="finish">Finish 🏁</button>';
+    else controls = '<button id="next">Next question →</button>';
 
     main.innerHTML =
       '<div class="board">' +
         '<h2>' + (done ? "🏆 Final results" : "Leaderboard") + '</h2>' +
         (rows || '<div class="center empty" style="font-size:18px">No players</div>') +
       '</div>' +
-      '<div class="controls center" style="justify-content:center">' + controls + '</div>';
+      '<div class="controls center" style="justify-content:center">' + controls + '</div>' +
+      (done ? '<div class="wiped">Nicknames, answers, and scores have been erased from the ' +
+              'database. This screen is the only copy — it disappears when you close the tab.</div>' : '');
 
     if (done) {
       document.getElementById("restart").onclick = () =>
-        { if (confirm("Reset this quiz? Clears all players and scores so you can run it fresh.")) resetGame(); };
+        { if (confirm("Run this quiz again from an empty lobby?")) resetGame(); };
     } else if (last) {
-      document.getElementById("finish").onclick = () => setState({ phase: "done" });
+      document.getElementById("finish").onclick = finishGame;
     } else {
       document.getElementById("next").onclick = () =>
-        setState({ phase: "question", q: qi + 1, startedAt: Date.now() });
+        setState({ phase: "question", q: qi + 1, startedAt: serverTimestamp(), correct: null });
     }
+  }
+
+  function boardRow(i, name, score) {
+    const cls = ["row"];
+    if (i === 0) cls.push("top1"); else if (i === 1) cls.push("top2"); else if (i === 2) cls.push("top3");
+    const medal = i === 0 ? "🥇" : i === 1 ? "🥈" : i === 2 ? "🥉" : (i + 1);
+    return '<div class="' + cls.join(" ") + '">' +
+      '<span class="rank">' + medal + '</span>' +
+      '<span class="nm">' + esc(name) + '</span>' +
+      '<span class="sc">' + score + '</span>' +
+    '</div>';
   }
 
   function esc(s) {

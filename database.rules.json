@@ -1,0 +1,130 @@
+// Security rules for live-poll-test.
+//
+// Paste into Firebase console → Realtime Database → Rules → Publish.
+// Keep this file in sync: it is the source of truth, the console is just where
+// it runs. Full setup walkthrough in SECURITY.md.
+//
+// Identities:
+//   students — anonymous auth (no prompt, no credential, no PII)
+//   host     — Google auth; the host uid lives at admin/hostUid, claimable once
+//
+// What these rules guarantee:
+//   - unauthenticated callers can read nothing but poll/quiz question text
+//   - a student can read ONLY their own player record and their own answers
+//   - a student can write ONLY their own display name and one answer per
+//     question (server-enforced first-answer-wins, not a localStorage guard)
+//   - answer timestamps are server-stamped, so the speed bonus can't be forged
+//   - the answer key (quizzes/<id>/key) is readable by the host alone
+//   - only the host can score, read the roster, or delete anything
+{
+  "rules": {
+    ".read": false,
+    ".write": false,
+
+    // Claim-once host identity. Requires Google sign-in, so the claim can't be
+    // taken by a student on an anonymous session. Immutable from the client
+    // afterwards — to move it, edit the value in the console Data tab.
+    "admin": {
+      "hostUid": {
+        ".read": "auth != null",
+        ".write": "auth != null && !data.exists() && auth.token.firebase.sign_in_provider === 'google'",
+        ".validate": "newData.isString() && newData.val() === auth.uid"
+      }
+    },
+
+    "polls": {
+      // index.html lists every poll; any signed-in device may read.
+      // Poll responses carry no identity, so this is not a privacy surface.
+      ".read": "auth != null",
+
+      "$pid": {
+        // Clear results / delete poll.
+        ".write": "auth != null && root.child('admin/hostUid').val() === auth.uid",
+
+        "config": {
+          // Public read so newpoll.py's "does this id already exist?" check
+          // works over plain REST. Question text only — no identity.
+          ".read": true,
+          ".write": "!data.exists()",
+          ".validate": "newData.hasChildren(['type', 'question'])",
+          "type":     { ".validate": "newData.isString()" },
+          "question": { ".validate": "newData.isString() && newData.val().length <= 500" },
+          "options":  { ".validate": "newData.hasChildren()" },
+          "created":  { ".validate": "newData.isNumber()" },
+          "$other":   { ".validate": false }
+        },
+
+        "responses": {
+          "$rid": {
+            ".write": "auth != null && !data.exists()",
+            ".validate": "newData.hasChild('ts') && (newData.hasChild('text') || newData.hasChild('choice'))",
+            "text":   { ".validate": "newData.isString() && newData.val().length <= 300" },
+            "choice": { ".validate": "newData.isNumber() && newData.val() >= 0 && newData.val() < 20" },
+            "ts":     { ".validate": "newData.val() === now" },
+            "$other": { ".validate": false }
+          }
+        }
+      }
+    },
+
+    "quizzes": {
+      ".read": "auth != null && root.child('admin/hostUid').val() === auth.uid",
+
+      "$qid": {
+        ".read":  "auth != null && root.child('admin/hostUid').val() === auth.uid",
+        ".write": "auth != null && root.child('admin/hostUid').val() === auth.uid",
+
+        // Question text and options. No answer key here — see "key" below.
+        "config": {
+          ".read": true,
+          ".write": "!data.exists()",
+          ".validate": "newData.hasChild('questions')"
+        },
+
+        // The answer key. Written once by newquiz.py, then host-read only.
+        // Players never receive it; the host publishes the correct index into
+        // state.correct at reveal time.
+        "key": {
+          ".write": "!data.exists()"
+        },
+
+        // Host-written game state: phase, question index, startedAt, and at
+        // reveal/leaderboard time the correct index, player count, and a
+        // uid→{rank,score} results map. Never contains names.
+        "state": {
+          ".read": "auth != null"
+        },
+
+        "players": {
+          "$uid": {
+            ".read": "auth != null && auth.uid === $uid",
+
+            // The only thing a student may write about themselves.
+            "name": {
+              ".write": "auth != null && auth.uid === $uid",
+              ".validate": "newData.isString() && newData.val().length > 0 && newData.val().length <= 20"
+            },
+            // Host-written (the $qid .write above covers it).
+            "score":   { ".validate": "newData.isNumber()" },
+            "rank":    { ".validate": "newData.isNumber()" },
+            "awarded": { "$q": { ".validate": "newData.isNumber()" } },
+            "$other":  { ".validate": false }
+          }
+        },
+
+        "answers": {
+          "$q": {
+            "$uid": {
+              ".read":  "auth != null && auth.uid === $uid",
+              ".write": "auth != null && auth.uid === $uid && !data.exists()",
+              ".validate": "newData.hasChildren(['choice', 'ts'])",
+              "choice": { ".validate": "newData.isNumber() && newData.val() >= 0 && newData.val() <= 3" },
+              "ts":     { ".validate": "newData.val() === now" },
+              "$other": { ".validate": false }
+            }
+          }
+        }
+      }
+    }
+  }
+}

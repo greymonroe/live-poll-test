@@ -15,6 +15,7 @@ whatever project that file points at. No extra config.
 import json
 import re
 import sys
+import urllib.error
 import urllib.request
 from pathlib import Path
 
@@ -33,9 +34,16 @@ def put(url: str, data: dict) -> None:
     body = json.dumps(data).encode()
     req = urllib.request.Request(url, data=body, method="PUT",
                                  headers={"Content-Type": "application/json"})
-    with urllib.request.urlopen(req) as r:
-        if r.status not in (200, 204):
-            sys.exit(f"Firebase write failed: HTTP {r.status}")
+    try:
+        with urllib.request.urlopen(req) as r:
+            if r.status not in (200, 204):
+                sys.exit(f"Firebase write failed: HTTP {r.status}")
+    except urllib.error.HTTPError as e:
+        if e.code in (401, 403):
+            sys.exit("Firebase refused the write (permission denied). Poll ids are "
+                     "create-only under the security rules — that id is already taken, "
+                     "or the rules aren't published yet. See SECURITY.md.")
+        sys.exit(f"Firebase write failed: HTTP {e.code} {e.reason}")
 
 
 def main() -> None:

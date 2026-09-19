@@ -38,14 +38,15 @@
   .muted { color:#8b949e; font-size:15px; }
   .err { color:#f85149; font-size:15px; line-height:1.5; }
   .you { color:#8b949e; font-size:14px; text-align:center; }
+  .fineprint { color:#6e7681; font-size:13px; line-height:1.5; text-align:center; }
 </style>
 </head>
 <body>
   <div id="root"><div class="muted">Loading…</div></div>
 
 <script type="module">
-  import { db, configured, notConfigured } from "./app.js";
-  import { ref, set, get, push, onValue }
+  import { db, requireAuth } from "./app.js";
+  import { ref, set, get, onValue, serverTimestamp }
     from "https://www.gstatic.com/firebasejs/10.12.2/firebase-database.js";
 
   const id = new URLSearchParams(location.search).get("quiz");
@@ -53,80 +54,78 @@
   const LETTERS = ["A", "B", "C", "D"];
 
   const base = "quizzes/" + id;
-  const idKey  = "quizid_" + id;     // stored player push id
-  const nameKey = "quizname_" + id;  // stored player name
+  const nameKey = "quizname_" + id;   // remembered nickname, so a rejoin is seamless
 
+  // myId is this device's anonymous Firebase uid. It is not linked to anything
+  // — no email, no login, no student record — and the security rules use it to
+  // scope reads and writes to this player alone.
   let config = null, state = null, myId = null, myName = null;
-  let lastQ = -1, locked = false, myChoice = null;
+  let locked = false, myChoice = null, myRank = null, myScore = 0;
 
-  if (!configured) { notConfigured(); }
-  else if (!id) {
-    root.innerHTML = '<div class="err">No quiz specified. Scan the QR on the screen.</div>';
-  } else {
-    boot();
-  }
+  start();
 
-  async function boot() {
+  async function start() {
+    const user = await requireAuth();
+    if (!user) return;
+    myId = user.uid;
+    if (!id) {
+      root.innerHTML = '<div class="err">No quiz specified. Scan the QR on the screen.</div>';
+      return;
+    }
     const snap = await get(ref(db, base + "/config"));
     config = snap.val();
     if (!config) { root.innerHTML = '<div class="err">Quiz not found.</div>'; return; }
 
-    myId = localStorage.getItem(idKey);
     myName = localStorage.getItem(nameKey);
-
-    if (myId) {
-      // Confirm we still exist server-side (host may have reset to lobby/cleared).
-      const me = await get(ref(db, base + "/players/" + myId));
-      if (!me.exists()) {
-        // Re-register with the same stored name (or fall through to name prompt).
-        if (myName) await registerWith(myName, myId);
-      }
-    }
-
-    if (!myId || !myName) { renderName(); }
+    if (!myName) renderName();
     listen();
   }
 
   function listen() {
     onValue(ref(db, base + "/state"), async (s) => {
       state = s.val();
-      // Reset answer lock when the question index changes.
-      const qi = state && typeof state.q === "number" ? state.q : -1;
-      if (!state || state.phase === "lobby") {
-        lastQ = -1; locked = false; myChoice = null;
-        // If the host did a full reset, our player record is gone — re-prompt for a name.
-        if (myId) {
-          const me = await get(ref(db, base + "/players/" + myId));
-          if (!me.exists()) {
-            localStorage.removeItem(idKey); localStorage.removeItem(nameKey);
-            myId = null; myName = null; renderName(); return;
-          }
-        }
-      }
-      else if (qi !== lastQ) { lastQ = qi; locked = hasAnsweredLocally(qi); myChoice = answeredChoice(qi); }
+      const phase = state ? state.phase : "lobby";
+      // The host erases the roster at the end of a game. Re-claim our slot any
+      // other time, so a mid-game reset or a reconnect doesn't drop us out.
+      if (phase !== "done" && myName) await ensureRegistered();
+      if (phase === "question" || phase === "reveal") await syncAnswer(state.q);
+      if (phase === "reveal" || phase === "leaderboard") await syncMe();
       render();
     });
   }
 
-  // Key the local answer-lock to THIS question-launch (startedAt), not just the
-  // quiz id + index. Reusing a quiz / resetting gives each question a new
-  // startedAt, so a fresh game never inherits a previous game's locked answer.
-  function roundTag() { return (state && state.startedAt) ? state.startedAt : 0; }
-  function answeredKey(qi) { return "quizans_" + id + "_" + qi + "_" + roundTag(); }
-  function hasAnsweredLocally(qi) { return localStorage.getItem(answeredKey(qi)) !== null; }
-  function answeredChoice(qi) {
-    const v = localStorage.getItem(answeredKey(qi));
-    return v === null ? null : Number(v);
+  async function ensureRegistered() {
+    const me = await get(ref(db, base + "/players/" + myId + "/name"));
+    if (!me.exists()) await registerWith(myName);
+  }
+
+  // Read back our own answer rather than trusting localStorage: the rules make
+  // answers write-once server-side, so this is the real state of things and it
+  // survives a refresh or a dead battery.
+  async function syncAnswer(qi) {
+    const a = await get(ref(db, base + "/answers/" + qi + "/" + myId));
+    locked = a.exists();
+    myChoice = locked ? a.val().choice : null;
+  }
+
+  async function syncMe() {
+    const me = await get(ref(db, base + "/players/" + myId));
+    const v = me.exists() ? me.val() : {};
+    myScore = typeof v.score === "number" ? v.score : 0;
+    myRank = typeof v.rank === "number" ? v.rank : null;
   }
 
   // ---- name / registration ----
   function renderName() {
     root.innerHTML =
       '<h1>' + esc(config.title || "Quiz") + '</h1>' +
-      '<p class="sub">Enter a name to join.</p>' +
-      '<input id="nm" placeholder="Your name" autocomplete="off" maxlength="24" autofocus>' +
+      '<p class="sub">Pick a nickname for the leaderboard. A first name is fine — ' +
+        'please don\'t use your full name or student ID.</p>' +
+      '<input id="nm" placeholder="Nickname" autocomplete="off" maxlength="20" autofocus>' +
       '<button class="go" id="join" style="margin-top:6px">Join</button>' +
-      '<div class="err" id="nerr"></div>';
+      '<div class="err" id="nerr"></div>' +
+      '<p class="fineprint">Just a game — nothing here is graded or recorded. Your nickname ' +
+        'is erased from the database when the game ends.</p>';
     const input = document.getElementById("nm");
     const btn = document.getElementById("join");
     if (myName) input.value = myName;
@@ -134,36 +133,31 @@
       const v = input.value.trim();
       if (!v) { input.focus(); return; }
       btn.disabled = true;
-      try { await registerWith(v, null); render(); }
+      try { await registerWith(v); render(); }
       catch (e) { document.getElementById("nerr").textContent = "Couldn't join: " + e.message; btn.disabled = false; }
     }
     btn.onclick = join;
     input.addEventListener("keydown", e => { if (e.key === "Enter") join(); });
   }
 
-  async function registerWith(name, existingId) {
-    let pid = existingId;
-    if (!pid) {
-      pid = push(ref(db, base + "/players")).key;
-    }
-    // Preserve score if the node already exists; otherwise start at 0.
-    let score = 0;
-    const existing = await get(ref(db, base + "/players/" + pid));
-    if (existing.exists() && typeof existing.val().score === "number") score = existing.val().score;
-    await set(ref(db, base + "/players/" + pid), { name, score });
-    myId = pid; myName = name;
-    localStorage.setItem(idKey, pid);
+  // A player writes exactly one thing about themselves: their nickname. Score,
+  // rank, and awarded points are host-written and rejected from here.
+  async function registerWith(name) {
+    await set(ref(db, base + "/players/" + myId + "/name"), name);
+    myName = name;
     localStorage.setItem(nameKey, name);
   }
 
   // ---- main render by phase ----
   function render() {
-    if (!myId || !myName) { renderName(); return; }
     const phase = state ? state.phase : "lobby";
+    if (phase === "done") return renderFinal();
+    // Don't re-paint the join form over a half-typed nickname.
+    if (!myName) { if (!document.getElementById("nm")) renderName(); return; }
     if (phase === "lobby" || !state) return renderLobby();
     if (phase === "question") return renderQuestion();
     if (phase === "reveal")   return renderReveal();
-    if (phase === "leaderboard" || phase === "done") return renderRank(phase === "done");
+    if (phase === "leaderboard") return renderRank();
   }
 
   function youLine() { return '<div class="you">Playing as <b>' + esc(myName) + '</b></div>'; }
@@ -209,69 +203,75 @@
   async function submitAnswer(qi, choice) {
     if (locked) return;
     locked = true; myChoice = choice;
-    // Lock UI immediately.
-    render();
+    render();                               // lock the UI immediately
     try {
-      // Write once; if it already exists server-side, leave it (first answer wins).
-      const aref = ref(db, base + "/answers/" + qi + "/" + myId);
-      const existing = await get(aref);
-      if (!existing.exists()) {
-        await set(aref, { choice, ts: Date.now() });
-      } else {
-        myChoice = existing.val().choice;
-      }
-      localStorage.setItem(answeredKey(qi), String(myChoice));
+      // serverTimestamp() is required by the rules, so the speed bonus is
+      // measured by Firebase's clock, not by anything this phone claims.
+      await set(ref(db, base + "/answers/" + qi + "/" + myId),
+                { choice, ts: serverTimestamp() });
     } catch (e) {
-      // On failure, unlock so they can retry.
-      locked = false; myChoice = null;
-      root.innerHTML = '<div class="err">Couldn\'t send: ' + esc(e.message) + '. Tap to retry.</div>';
-      setTimeout(render, 1200);
+      // Either we already answered (write-once) or the write was rejected.
+      await syncAnswer(qi);
+      if (!locked) {
+        root.innerHTML = '<div class="err">Couldn\'t send: ' + esc(e.message) + '. Tap to retry.</div>';
+        setTimeout(render, 1200);
+        return;
+      }
     }
+    render();
   }
 
-  async function renderReveal() {
+  // The correct index arrives in state.correct, published by the host at reveal
+  // time. It is not in the quiz config this phone downloaded.
+  function renderReveal() {
     const qi = state.q;
     const q = config.questions[qi];
-    const me = await get(ref(db, base + "/players/" + myId));
-    const score = me.exists() && typeof me.val().score === "number" ? me.val().score : 0;
+    const answer = typeof state.correct === "number" ? state.correct : null;
 
-    const choice = answeredChoice(qi);
     let body;
-    if (choice == null) {
+    if (answer === null) {
+      body = '<p class="big muted">Answer coming up…</p>';
+    } else if (myChoice == null) {
       body = '<p class="big muted">No answer this round</p>' +
-             '<p class="muted">Correct was ' + LETTERS[q.correct] + ': ' + esc(q.options[q.correct]) + '</p>';
-    } else if (choice === q.correct) {
+             '<p class="muted">Correct was ' + LETTERS[answer] + ': ' + esc(q.options[answer]) + '</p>';
+    } else if (myChoice === answer) {
       body = '<p class="big right">Correct! ✓</p>' +
-             '<p class="muted">' + LETTERS[q.correct] + ': ' + esc(q.options[q.correct]) + '</p>';
+             '<p class="muted">' + LETTERS[answer] + ': ' + esc(q.options[answer]) + '</p>';
     } else {
       body = '<p class="big wrong">Not quite ✗</p>' +
-             '<p class="muted">You picked ' + LETTERS[choice] + '. Correct was ' +
-             LETTERS[q.correct] + ': ' + esc(q.options[q.correct]) + '</p>';
+             '<p class="muted">You picked ' + LETTERS[myChoice] + '. Correct was ' +
+             LETTERS[answer] + ': ' + esc(q.options[answer]) + '</p>';
     }
     root.innerHTML =
-      '<div class="card">' + body + '<div class="score">' + score + ' pts</div></div>' + youLine();
+      '<div class="card">' + body + '<div class="score">' + myScore + ' pts</div></div>' + youLine();
   }
 
-  async function renderRank(done) {
-    const snap = await get(ref(db, base + "/players"));
-    const players = snap.val() || {};
-    const ranked = Object.entries(players)
-      .map(([pid, p]) => ({ pid, name: p.name, score: typeof p.score === "number" ? p.score : 0 }))
-      .sort((a, b) => b.score - a.score);
-    const myRank = ranked.findIndex(p => p.pid === myId) + 1;
-    const myScore = (players[myId] && typeof players[myId].score === "number") ? players[myId].score : 0;
-    const total = ranked.length;
-    const medal = myRank === 1 ? "🥇" : myRank === 2 ? "🥈" : myRank === 3 ? "🥉" : "#" + myRank;
+  // Rank is written to our own record by the host. We never read the roster —
+  // the rules wouldn't allow it, and we don't need to.
+  function renderRank() {
+    const total = state && typeof state.count === "number" ? state.count : null;
+    root.innerHTML = rankCard("Leaderboard", myRank, myScore, total, false) + youLine();
+  }
 
-    root.innerHTML =
-      '<div class="card">' +
-        '<p class="big">' + (done ? "🏁 Final" : "Leaderboard") + '</p>' +
-        '<p class="big">' + (myRank > 0 ? medal : "—") + '</p>' +
-        '<p class="muted">' + (myRank > 0 ? ("Rank " + myRank + " of " + total) : "Not ranked") + '</p>' +
-        '<div class="score">' + myScore + ' pts</div>' +
-        (done && myRank === 1 ? '<p class="muted">You won! 🎉</p>' : '') +
-        (!done ? '<p class="muted" style="margin-top:10px">Next question coming up…</p>' : '') +
-      '</div>' + youLine();
+  function renderFinal() {
+    const r = state && state.results ? state.results[myId] : null;
+    const rank = r && typeof r.rank === "number" ? r.rank : myRank;
+    const score = r && typeof r.score === "number" ? r.score : myScore;
+    const total = state && typeof state.count === "number" ? state.count : null;
+    root.innerHTML = rankCard("🏁 Final", rank, score, total, true) +
+      '<p class="fineprint">Game over — your nickname and answers have been erased.</p>';
+  }
+
+  function rankCard(heading, rank, score, total, done) {
+    const medal = rank === 1 ? "🥇" : rank === 2 ? "🥈" : rank === 3 ? "🥉" : (rank ? "#" + rank : "—");
+    return '<div class="card">' +
+      '<p class="big">' + heading + '</p>' +
+      '<p class="big">' + medal + '</p>' +
+      '<p class="muted">' + (rank ? ("Rank " + rank + (total ? " of " + total : "")) : "Not ranked") + '</p>' +
+      '<div class="score">' + score + ' pts</div>' +
+      (done && rank === 1 ? '<p class="muted">You won! 🎉</p>' : '') +
+      (!done ? '<p class="muted" style="margin-top:10px">Next question coming up…</p>' : '') +
+    '</div>';
   }
 
   function esc(s) {

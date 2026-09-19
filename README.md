@@ -13,8 +13,15 @@ per-poll.
 - `submit.html?poll=ID` — **phone view**: text box or tappable options depending on type.
 - `quiz.html?quiz=ID` — **Kahoot-style quiz host** (big screen, controls the game).
 - `quiz-play.html?quiz=ID` — **quiz player** (phone).
-- `app.js` — shared helpers + Firebase init.
+- `app.js` — shared helpers + Firebase init + sign-in.
 - `firebase-config.js` — paste your Firebase config here once (instructions inside).
+- `database.rules.json` — the security rules. Source of truth; paste into the console.
+- `SECURITY.md` — **one-time setup + what the rules guarantee. Read this first.**
+
+## Setup
+Three console steps, once: enable **Anonymous** and **Google** sign-in, publish
+`database.rules.json`, then click **Sign in as host** on `index.html` to claim host.
+Walkthrough in [SECURITY.md](SECURITY.md). Nothing works until they're done.
 
 ## Creating polls/quizzes (agent workflow — there is no GUI builder)
 Polls and quizzes are created by running a helper (designed to be run by a Claude Code agent):
@@ -37,13 +44,21 @@ quiz.json format:
 
 ## Data model (Firebase Realtime Database)
 ```
+admin/hostUid          the host's Google uid; claim-once, then immutable from the client
 polls/<id>/config      { type: "text"|"mc"|"wordcloud", question, options?[], created }
-polls/<id>/responses   push-list of { text } or { choice: <optionIndex> }
-quizzes/<id>/config    { title, questions:[{q,options[],correct}], created }
-quizzes/<id>/state     { phase, q, startedAt }     (host-written)
-quizzes/<id>/players/<pid>      { name, score }
-quizzes/<id>/answers/<q>/<pid>  { choice, ts }
+polls/<id>/responses   push-list of { text } or { choice } + server ts — no identity
+quizzes/<id>/config    { title, questions:[{q,options[],image?}], created }   public
+quizzes/<id>/key       [correctIndex, …]                                      HOST ONLY
+quizzes/<id>/state     { phase, q, startedAt, correct?, count?, results? }    host-written
+quizzes/<id>/players/<uid>      { name, score, rank, awarded{} }   name self-written, rest host
+quizzes/<id>/answers/<q>/<uid>  { choice, ts }                     write-once, server ts
 ```
+`<uid>` is an anonymous Firebase uid — per-browser, not tied to any account.
+The answer key is a separate path so player phones never download it; the host
+publishes the correct index into `state.correct` at reveal time.
+
+Player rosters are erased when a game finishes. See [SECURITY.md](SECURITY.md).
+
 A poll "type" is just how display.html renders the same stored data — adding a type
 (rating, ranking, Q&A…) is front-end only, no backend change.
 
@@ -63,9 +78,13 @@ Open http://localhost:8000 . (`file://` won't work — ES modules need http.)
 ## Live
 https://greymonroe.github.io/live-poll-test/
 
-## Current scope / TODO before real classroom use
-- DB rules are wide open (anyone with a link can read/write). Tighten to "append-only short
-  messages, no full-tree read/delete" before pointing a real class at it.
-- One-vote-per-person is a soft localStorage guard only (clears if they switch devices/clear data).
-- Possible next types: 1–5 rating, ranking, Q&A + upvotes.
-- Moderation (approve-before-show) toggle.
+## Scope
+**Ungraded, in-class, for fun.** Nicknames only, erased at the end of every game.
+Anything that counts toward a grade belongs in Canvas or the campus clicker
+system, not here — the reasoning is in [SECURITY.md](SECURITY.md).
+
+## TODO
+- Possible next poll types: 1–5 rating, ranking, Q&A + upvotes.
+- Moderation (approve-before-show) toggle for text/word-cloud polls.
+- Poll voting is still one-per-tap with a soft localStorage guard — fine for
+  "add as many as you like" prompts, but it isn't a one-vote-per-person ballot.

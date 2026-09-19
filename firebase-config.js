@@ -5,8 +5,9 @@
 //   1. Go to https://console.firebase.google.com  → "Create a project"
 //      (name it anything, e.g. "live-poll"; you can disable Analytics).
 //   2. In the project, left sidebar → "Build" → "Realtime Database"
-//      → "Create Database" → pick a location → start in **Test mode**
-//      (Test mode = open read/write, which is exactly what we want for now).
+//      → "Create Database" → pick a location → start in **Locked mode**.
+//      (Do NOT pick Test mode — that leaves the database open to the world.
+//      The rules in database.rules.json replace it; see SECURITY.md.)
 //   3. Project settings (gear icon, top-left) → scroll to "Your apps"
 //      → click the "</>" Web icon → register an app (any nickname).
 //   4. It shows you a `firebaseConfig = { ... }` object. Copy the values
@@ -15,7 +16,12 @@
 //      https://<your-project-id>-default-rtdb.firebaseio.com  (or the
 //      region-specific one shown on the Realtime Database page).
 //
-// That's it. No server, no deploy step for the backend.
+// Then do the three steps in SECURITY.md (enable Anonymous + Google
+// sign-in, publish database.rules.json, claim host). The app will not work
+// until sign-in is enabled.
+//
+// These values are not secrets — they ship in the page and identify the
+// project, nothing more. What protects the data is the rules file.
 // ─────────────────────────────────────────────────────────────────────────
 
 export const firebaseConfig = {

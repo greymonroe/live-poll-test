@@ -61,9 +61,16 @@ def put(url: str, data) -> None:
     body = json.dumps(data).encode()
     req = urllib.request.Request(url, data=body, method="PUT",
                                  headers={"Content-Type": "application/json"})
-    with urllib.request.urlopen(req) as r:
-        if r.status not in (200, 204):
-            sys.exit(f"Firebase write failed: HTTP {r.status}")
+    try:
+        with urllib.request.urlopen(req) as r:
+            if r.status not in (200, 204):
+                sys.exit(f"Firebase write failed: HTTP {r.status}")
+    except urllib.error.HTTPError as e:
+        if e.code in (401, 403):
+            sys.exit("Firebase refused the write (permission denied). Quiz ids are "
+                     "create-only under the security rules — that id is already taken, "
+                     "or the rules aren't published yet. See SECURITY.md.")
+        sys.exit(f"Firebase write failed: HTTP {e.code} {e.reason}")
 
 
 def load_and_validate(path: str) -> dict:
@@ -82,7 +89,7 @@ def load_and_validate(path: str) -> dict:
     if not isinstance(questions, list) or not questions:
         sys.exit("quiz JSON needs a non-empty 'questions' list")
 
-    clean_qs = []
+    clean_qs, key = [], []
     for i, q in enumerate(questions):
         where = f"question {i + 1}"
         if not isinstance(q, dict):
@@ -99,18 +106,22 @@ def load_and_validate(path: str) -> dict:
         if not isinstance(correct, int) or isinstance(correct, bool) \
                 or not (0 <= correct < len(options)):
             sys.exit(f"{where}: 'correct' must be an index 0..{len(options) - 1}")
-        cleaned = {"q": text, "options": options, "correct": correct}
+        # The answer key is deliberately NOT part of the question object: it is
+        # written to a separate, host-read-only path so player phones never
+        # receive it. See SECURITY.md.
+        cleaned = {"q": text, "options": options}
         image = q.get("image")
         if image is not None:
             if not isinstance(image, str) or not image.strip():
                 sys.exit(f"{where}: 'image' must be a URL string")
             cleaned["image"] = image.strip()
         clean_qs.append(cleaned)
+        key.append(correct)
 
     title = data.get("title")
     if title is not None and not isinstance(title, str):
         sys.exit("'title' must be a string")
-    return {"title": title, "questions": clean_qs}
+    return {"title": title, "questions": clean_qs, "key": key}
 
 
 def main() -> None:
@@ -136,7 +147,11 @@ def main() -> None:
     except urllib.error.URLError:
         pass
 
+    # Two writes: public question text, and the host-only answer key. Both paths
+    # are create-only under the security rules, so a failure here means the id
+    # is already taken.
     put(f"{db}/quizzes/{qid}/config.json", cfg)
+    put(f"{db}/quizzes/{qid}/key.json", quiz["key"])
     n = len(quiz["questions"])
     print(f'Created quiz "{qid}": {title} ({n} question{"s" if n != 1 else ""})')
     print(f"  Host (big screen): {PAGES_BASE}quiz.html?quiz={qid}")

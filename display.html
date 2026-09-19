@@ -60,26 +60,33 @@
 
 <script src="https://cdn.jsdelivr.net/gh/davidshimjs/qrcodejs@04f46c6a/qrcode.min.js"></script>
 <script type="module">
-  import { db, configured, pollId, pageURL, makeQR, notConfigured } from "./app.js";
+  import { db, pollId, pageURL, makeQR, requireAuth, amHost } from "./app.js";
   import { ref, onValue, onChildAdded, onChildRemoved, query, limitToLast, remove }
     from "https://www.gstatic.com/firebasejs/10.12.2/firebase-database.js";
 
-  if (!configured) notConfigured();
   const id = pollId();
   const main = document.getElementById("main");
   const clearBtn = document.getElementById("clear");
 
-  if (!id) {
-    main.innerHTML = '<div class="err">No poll specified. Open this from the polls list (index.html).</div>';
-  } else {
+  start();
+
+  async function start() {
+    if (!(await requireAuth())) return;
+    if (!id) {
+      main.innerHTML = '<div class="err">No poll specified. Open this from the polls list (index.html).</div>';
+      return;
+    }
     const submitURL = pageURL("submit.html", id);
     document.getElementById("joinurl").textContent = submitURL.replace(/^https?:\/\//, "");
     makeQR(document.getElementById("qr"), submitURL, 150);
 
-    clearBtn.style.display = "block";
-    clearBtn.onclick = async () => {
-      if (confirm("Clear all results on this poll?")) await remove(ref(db, "polls/" + id + "/responses"));
-    };
+    // Clearing is host-only; the rules reject it from a student session.
+    if (await amHost()) {
+      clearBtn.style.display = "block";
+      clearBtn.onclick = async () => {
+        if (confirm("Clear all results on this poll?")) await remove(ref(db, "polls/" + id + "/responses"));
+      };
+    }
 
     onValue(ref(db, "polls/" + id + "/config"), (snap) => {
       const cfg = snap.val();
