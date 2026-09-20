@@ -25,7 +25,7 @@
 // ─────────────────────────────────────────────────────────────────────────
 
 export const firebaseConfig = {
-  apiKey:            "AIzaSyBhcWFAF48VN-D8h2lBnVi5TdUWmMxBc4LE",
+  apiKey:            "AIzaSyBhcWFAF48VN-DBh2lBnVi5TdUWMxBc4LE",
   authDomain:        "live-poll-8088d.firebaseapp.com",
   databaseURL:       "https://live-poll-8088d-default-rtdb.firebaseio.com",
   projectId:         "live-poll-8088d",

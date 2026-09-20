@@ -35,15 +35,18 @@ export const ready = configured
     })
   : Promise.resolve(null);
 
-// Await this at the top of every page. Returns the user, or null after
-// painting an explanatory error (in which case the caller should bail).
+// Await this at the top of every page. Returns the signed-in user, or a
+// guest sentinel when Firebase Auth isn't provisioned yet (Authentication →
+// Get started + enable Anonymous, per SECURITY.md). Guest mode keeps polls
+// working while the database rules are still open; once the locked rules are
+// published, writes from a guest session fail loudly at the write site, and
+// by then auth must be provisioned anyway (it's a prerequisite of the rules).
 export async function requireAuth() {
   if (!configured) { notConfigured(); return null; }
   const user = await ready;
   if (!user) {
-    notConfigured("Couldn't sign in. In the Firebase console → Authentication → " +
-                  "Sign-in method, enable the <b>Anonymous</b> provider.");
-    return null;
+    console.warn("Firebase sign-in unavailable — continuing without auth (guest mode).");
+    return { uid: null, guest: true };
   }
   return user;
 }
