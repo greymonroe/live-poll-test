@@ -40,6 +40,17 @@
          border:1px solid #21262d; background:#161b22;
          animation:pop .35s cubic-bezier(.2,.8,.2,1); }
   .tag .tn { font-size:.55em; font-weight:600; opacity:.7; }
+  .histo-wrap { height:100%; display:flex; flex-direction:column; gap:18px; max-width:1400px; margin:0 auto; }
+  .histo-stats { font-size:clamp(20px,2.4vw,32px); color:#e6edf3; text-align:center; }
+  .histo-stats b { color:#58a6ff; }
+  .histo { flex:1 1 auto; display:flex; align-items:flex-end; gap:6px; min-height:0; }
+  .hcol { flex:1; display:flex; flex-direction:column; justify-content:flex-end; height:100%; min-width:0; }
+  .hcount { text-align:center; font-size:clamp(12px,1.4vw,20px); color:#8b949e; margin-bottom:4px; }
+  .hbar { border-radius:8px 8px 0 0; background:linear-gradient(180deg,#388bfd,#1f6feb);
+          transition:height .5s cubic-bezier(.2,.8,.2,1); min-height:0; }
+  .haxis { display:flex; gap:6px; border-top:1px solid #30363d; padding-top:8px; }
+  .haxis span { flex:1; text-align:center; font-size:clamp(11px,1.2vw,17px); color:#8b949e;
+                white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
   .empty { color:#6e7681; font-size:clamp(18px,2vw,26px); margin:auto; text-align:center; }
   .err { color:#f85149; padding:32px; font-size:18px; }
 </style>
@@ -93,6 +104,7 @@
       if (!cfg) { main.innerHTML = '<div class="err">Poll "' + id + '" not found.</div>'; return; }
       document.getElementById("question").textContent = cfg.question;
       if (cfg.type === "mc") renderMC(cfg);
+      else if (cfg.type === "number") renderNumber(cfg);
       else if (cfg.type === "wordcloud") renderWordCloud(cfg);
       else renderText();
     }, { onlyOnce: true });
@@ -187,6 +199,76 @@
           tag.appendChild(cnt);
         }
         cloud.appendChild(tag);
+      });
+    });
+  }
+
+  // Live histogram of numeric guesses. Bin bounds come from config
+  // (options.min/max/binWidth) when set — fixed axis, comparable across the
+  // rounds of a guessing game — otherwise auto-fit to the data. Out-of-range
+  // values land in the edge bins so every bet stays visible.
+  function renderNumber(cfg) {
+    const set = cfg.options || {};
+    const unit = set.unit || "";
+    main.innerHTML =
+      '<div class="histo-wrap">' +
+      '<div class="histo-stats" id="hstats"></div>' +
+      '<div class="histo" id="histo"><div class="empty">Waiting for bets…</div></div>' +
+      '<div class="haxis" id="haxis"></div></div>';
+    const histo = document.getElementById("histo"),
+          haxis = document.getElementById("haxis"),
+          hstats = document.getElementById("hstats");
+    const fmt = (x) => {
+      const r = Math.round(x * 10) / 10;
+      return (Number.isInteger(r) ? r : r.toFixed(1)).toString();
+    };
+    onValue(respRef(), (snap) => {
+      const vals = Object.values(snap.val() || {})
+        .map(r => r && parseFloat(r.text))
+        .filter(v => typeof v === "number" && isFinite(v));
+      countEl.textContent = vals.length + (vals.length === 1 ? " bet" : " bets");
+      if (!vals.length) {
+        histo.innerHTML = '<div class="empty">Waiting for bets…</div>';
+        haxis.innerHTML = ""; hstats.textContent = "";
+        return;
+      }
+      // bin bounds: fixed from config, else fitted to the data
+      let lo = typeof set.min === "number" ? set.min : Math.min(...vals);
+      let hi = typeof set.max === "number" ? set.max : Math.max(...vals);
+      if (hi <= lo) hi = lo + 1;
+      let bw = typeof set.binWidth === "number" && set.binWidth > 0
+        ? set.binWidth
+        : (() => {                       // ~12 bins, "nice" width (1/2/5 × 10^k)
+            const raw = (hi - lo) / 12, mag = Math.pow(10, Math.floor(Math.log10(raw)));
+            const m = raw / mag;
+            return (m <= 1 ? 1 : m <= 2 ? 2 : m <= 5 ? 5 : 10) * mag;
+          })();
+      const start = Math.floor(lo / bw) * bw;
+      const nbins = Math.max(1, Math.ceil((hi - start) / bw));
+      const counts = new Array(nbins).fill(0);
+      vals.forEach(v => {
+        counts[Math.min(nbins - 1, Math.max(0, Math.floor((v - start) / bw)))]++;
+      });
+      const maxC = Math.max(...counts);
+      const n = vals.length,
+            mean = vals.reduce((a, b) => a + b, 0) / n,
+            sorted = [...vals].sort((a, b) => a - b),
+            median = n % 2 ? sorted[(n - 1) / 2] : (sorted[n / 2 - 1] + sorted[n / 2]) / 2;
+      hstats.innerHTML = "n = <b>" + n + "</b> &nbsp;·&nbsp; mean <b>" + fmt(mean) +
+        (unit ? " " + unit : "") + "</b> &nbsp;·&nbsp; median <b>" + fmt(median) +
+        (unit ? " " + unit : "") + "</b>";
+      histo.innerHTML = ""; haxis.innerHTML = "";
+      counts.forEach((c, i) => {
+        const col = document.createElement("div");
+        col.className = "hcol";
+        col.innerHTML = '<div class="hcount">' + (c || "") + '</div><div class="hbar"></div>';
+        col.querySelector(".hbar").style.height = (c / maxC * 88) + "%";
+        histo.appendChild(col);
+        const lab = document.createElement("span");
+        const bLo = start + i * bw, bHi = bLo + bw;
+        lab.textContent = (i === 0 && bLo > Math.min(...vals) ? "≤" : "") + fmt(bLo) + "–" + fmt(bHi) +
+                          (i === nbins - 1 && bHi < Math.max(...vals) ? "+" : "");
+        haxis.appendChild(lab);
       });
     });
   }

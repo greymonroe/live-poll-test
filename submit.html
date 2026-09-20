@@ -55,6 +55,7 @@
       if (!cfg) { document.body.innerHTML = '<div class="err">Poll not found.</div>'; return; }
       qEl.textContent = cfg.question;
       if (cfg.type === "mc") renderMC(cfg);
+      else if (cfg.type === "number") renderNumber(cfg);
       else if (cfg.type === "wordcloud") renderText(true);
       else renderText(false);
     }, { onlyOnce: true });
@@ -78,6 +79,40 @@
     }
     btn.onclick = send;
     text.addEventListener("keydown", e => { if ((e.metaKey || e.ctrlKey) && e.key === "Enter") send(); });
+  }
+
+  function renderNumber(cfg) {
+    const unit = (cfg.options && cfg.options.unit) || "";
+    const betKey = "bet_" + id;
+    const already = localStorage.getItem(betKey);
+    sub.textContent = already ? "" : "One bet per person — lock it in.";
+    ui.innerHTML =
+      '<div style="display:flex;gap:12px;align-items:center">' +
+      '<input id="num" type="number" inputmode="decimal" step="any" placeholder="Your bet…"' +
+      ' style="flex:1;padding:16px;font-size:22px;border-radius:14px;border:1px solid #30363d;background:#161b22;color:#e6edf3">' +
+      (unit ? '<span style="font-size:20px;color:#8b949e">' + unit + "</span>" : "") +
+      "</div>" +
+      '<button id="send" style="margin-top:14px;width:100%">Lock in my bet</button>';
+    const num = document.getElementById("num"), btn = document.getElementById("send");
+    if (already !== null) {
+      num.value = already; num.disabled = true; btn.disabled = true;
+      ok.textContent = "✓ Bet locked: " + already + (unit ? " " + unit : "");
+      return;
+    }
+    btn.onclick = async () => {
+      const v = parseFloat(num.value);
+      if (!isFinite(v)) { ok.textContent = "Enter a number first."; return; }
+      btn.disabled = true; num.disabled = true;
+      try {
+        await push(ref(db, "polls/" + id + "/responses"), { text: String(v), ts: serverTimestamp() });
+        localStorage.setItem(betKey, String(v));
+        ok.textContent = "✓ Bet locked: " + v + (unit ? " " + unit : "");
+      } catch (e) {
+        ok.textContent = "Couldn't send: " + e.message;
+        btn.disabled = false; num.disabled = false;
+      }
+    };
+    num.addEventListener("keydown", e => { if (e.key === "Enter") btn.onclick(); });
   }
 
   function renderMC(cfg) {

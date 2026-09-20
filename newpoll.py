@@ -5,6 +5,11 @@ Usage:
   python3 newpoll.py text      <id> "Question?"
   python3 newpoll.py wordcloud <id> "Question?"
   python3 newpoll.py mc        <id> "Question?" "Option A" "Option B" [more options...]
+  python3 newpoll.py number    <id> "Question?" [unit] [min] [max] [binWidth]
+
+number polls show a live histogram of the guesses on the display, with n /
+mean / median. Give min+max+binWidth to fix the axis (comparable across
+rounds of a multi-round guessing game); omit them to auto-bin from the data.
 
 The <id> becomes part of the URL. Use a short slug, e.g. pls152-week3.
 Prints the display + phone URLs when done.
@@ -51,8 +56,8 @@ def main() -> None:
     if len(args) < 3:
         sys.exit(__doc__)
     ptype, pid, question, *options = args
-    if ptype not in ("text", "mc", "wordcloud"):
-        sys.exit('type must be "text", "wordcloud", or "mc"')
+    if ptype not in ("text", "mc", "wordcloud", "number"):
+        sys.exit('type must be "text", "wordcloud", "mc", or "number"')
     pid = re.sub(r"[^a-z0-9]+", "-", pid.lower()).strip("-")
     if not pid:
         sys.exit("invalid id")
@@ -62,6 +67,21 @@ def main() -> None:
         if len(options) < 2:
             sys.exit("multiple choice needs at least 2 options")
         cfg["options"] = options
+    elif ptype == "number":
+        # settings ride in the "options" slot (the only free child the
+        # database rules allow on config)
+        settings = {}
+        if options:
+            settings["unit"] = options[0]
+        for key, val in zip(("min", "max", "binWidth"), options[1:4]):
+            try:
+                settings[key] = float(val)
+            except ValueError:
+                sys.exit(f"{key} must be a number, got {val!r}")
+        if "min" in settings and "max" in settings and settings["max"] <= settings["min"]:
+            sys.exit("max must be greater than min")
+        if settings:
+            cfg["options"] = settings
 
     db = database_url()
     # Refuse to clobber an existing poll's config silently
