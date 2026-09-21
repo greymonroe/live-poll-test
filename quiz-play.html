@@ -119,9 +119,8 @@
   function renderName() {
     root.innerHTML =
       '<h1>' + esc(config.title || "Quiz") + '</h1>' +
-      '<p class="sub">Pick a nickname for the leaderboard. A first name is fine — ' +
-        'please don\'t use your full name or student ID.</p>' +
-      '<input id="nm" placeholder="Nickname" autocomplete="off" maxlength="20" autofocus>' +
+      '<p class="sub">Pick a name for the leaderboard — real or made up, whatever you like.</p>' +
+      '<input id="nm" placeholder="Name" autocomplete="off" maxlength="20" autofocus>' +
       '<button class="go" id="join" style="margin-top:6px">Join</button>' +
       '<div class="err" id="nerr"></div>' +
       '<p class="fineprint">Just a game — nothing here is graded or recorded. Your nickname ' +
