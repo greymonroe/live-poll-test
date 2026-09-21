@@ -26,12 +26,18 @@ Then, same section → **Settings** → **Authorized domains** → add
 `localhost` is allowed by default, the Pages URL is not. (Anonymous sign-in is
 unaffected by this list — students are fine either way.)
 
-**2. Publish the rules.**
-Console → **Realtime Database** → **Rules** tab. Replace whatever is there with
-the contents of [`database.rules.json`](database.rules.json), then **Publish**.
+**2. Publish the rules. — ✅ DONE 2026-09-21** (deployed via REST with gcloud
+credentials; verified unauthenticated reads are denied). To re-publish after
+editing `database.rules.json`:
 
-> The database was originally created in *Test mode*, which is open read/write
-> to anyone on the internet. Publishing these rules is what closes it.
+```bash
+curl -X PUT -H "Authorization: Bearer $(gcloud auth print-access-token)" \
+  https://live-poll-8088d-default-rtdb.firebaseio.com/.settings/rules.json \
+  --data-binary @database.rules.json
+```
+
+> The database was originally created in *Test mode*, open read/write to
+> anyone on the internet. These rules are what closed it.
 
 **3. Claim host.**
 Open `index.html` (locally or on Pages), click **Sign in as host**, pick your
