@@ -48,6 +48,7 @@ admin/hostUid          the host's Google uid; claim-once, then immutable from th
 polls/<id>/config      { type: "text"|"mc"|"wordcloud", question, options?[], created }
 polls/<id>/responses   push-list of { text } or { choice } + server ts — no identity
 quizzes/<id>/config    { title, questions:[{q,options[],image?}], created }   public
+                       (an option is a string or {image, text?} = a picture answer)
 quizzes/<id>/key       [correctIndex, …]                                      HOST ONLY
 quizzes/<id>/state     { phase, q, startedAt, correct?, count?, results? }    host-written
 quizzes/<id>/players/<uid>      { name, score, rank, awarded{} }   name self-written, rest host

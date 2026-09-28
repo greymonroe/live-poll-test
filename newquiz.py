@@ -32,7 +32,9 @@ Rules for the JSON:
   - "title": a string (optional; defaults to the id).
   - "questions": a non-empty list. Each question needs:
       - "q": the question text (string).
-      - "options": a list of 2-4 answer strings.
+      - "options": a list of 2-4 answers. Each is a string, or a picture answer
+        {"image": "images/x.png", "text": "optional caption"} (same image rules
+        as the question image below).
       - "correct": the 0-based index of the correct option (0..len-1).
       - "image": OPTIONAL image shown above the answers (e.g. a bird photo for
         "What species is this?"). Either a public https URL, or a repo-relative
@@ -100,8 +102,16 @@ def load_and_validate(path: str) -> dict:
         options = q.get("options")
         if not isinstance(options, list) or not (2 <= len(options) <= 4):
             sys.exit(f"{where}: 'options' must be a list of 2-4 strings")
-        if not all(isinstance(o, str) and o.strip() for o in options):
-            sys.exit(f"{where}: every option must be a non-empty string")
+        clean_opts = []
+        for o in options:
+            if isinstance(o, str) and o.strip():
+                clean_opts.append(o)
+            elif isinstance(o, dict) and isinstance(o.get("image"), str) and o["image"].strip() \
+                    and set(o) <= {"image", "text"} and isinstance(o.get("text", ""), str):
+                clean_opts.append({k: v.strip() for k, v in o.items()})
+            else:
+                sys.exit(f"{where}: each option must be a non-empty string or {{\"image\": ..., \"text\": optional}}")
+        options = clean_opts
         correct = q.get("correct")
         if not isinstance(correct, int) or isinstance(correct, bool) \
                 or not (0 <= correct < len(options)):

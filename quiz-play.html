@@ -26,6 +26,10 @@
   .tile:active { transform:scale(.97); }
   .tile .letter { font-size:1.3em; font-weight:800; opacity:.85; }
   .tile .txt { flex:1 1 auto; word-break:break-word; }
+  .tile .optimg { flex:1 1 auto; min-width:0; max-width:100%; max-height:17vh; object-fit:contain;
+                  background:#fff; border-radius:10px; }
+  .card .optimg { display:block; margin:10px auto 0; max-width:70%; max-height:22vh;
+                  background:#fff; border-radius:10px; }
   .c0 { background:#e23b4d; } .c1 { background:#1f6feb; }
   .c2 { background:#d9a420; } .c3 { background:#2ea043; }
   .tile.dim { opacity:.35; } .tile.picked { outline:4px solid #fff; }
@@ -186,7 +190,7 @@
     const tiles = q.options.map((opt, i) =>
       '<button class="tile c' + i + '" data-i="' + i + '">' +
         '<span class="letter">' + LETTERS[i] + '</span>' +
-        '<span class="txt">' + esc(opt) + '</span>' +
+        optHTML(opt) +
       '</button>').join("");
     root.innerHTML =
       '<h1>Q' + (qi + 1) + '. ' + esc(q.q) + '</h1>' +
@@ -232,14 +236,14 @@
       body = '<p class="big muted">Answer coming up…</p>';
     } else if (myChoice == null) {
       body = '<p class="big muted">No answer this round</p>' +
-             '<p class="muted">Correct was ' + LETTERS[answer] + ': ' + esc(q.options[answer]) + '</p>';
+             '<p class="muted">Correct was ' + LETTERS[answer] + ': ' + optLabel(q.options[answer]) + '</p>' + optPic(q.options[answer]);
     } else if (myChoice === answer) {
       body = '<p class="big right">Correct! ✓</p>' +
-             '<p class="muted">' + LETTERS[answer] + ': ' + esc(q.options[answer]) + '</p>';
+             '<p class="muted">' + LETTERS[answer] + ': ' + optLabel(q.options[answer]) + '</p>' + optPic(q.options[answer]);
     } else {
       body = '<p class="big wrong">Not quite ✗</p>' +
              '<p class="muted">You picked ' + LETTERS[myChoice] + '. Correct was ' +
-             LETTERS[answer] + ': ' + esc(q.options[answer]) + '</p>';
+             LETTERS[answer] + ': ' + optLabel(q.options[answer]) + '</p>' + optPic(q.options[answer]);
     }
     root.innerHTML =
       '<div class="card">' + body + '<div class="score">' + myScore + ' pts</div></div>' + youLine();
@@ -271,6 +275,20 @@
       (done && rank === 1 ? '<p class="muted">You won! 🎉</p>' : '') +
       (!done ? '<p class="muted" style="margin-top:10px">Next question coming up…</p>' : '') +
     '</div>';
+  }
+
+  // An option is a string, or {image, text?} for a picture answer.
+  function optHTML(opt) {
+    if (opt && typeof opt === "object" && opt.image)
+      return '<img class="optimg" src="' + esc(opt.image) + '" alt="' + esc(opt.text || "") + '">' +
+             (opt.text ? '<span class="txt">' + esc(opt.text) + '</span>' : '');
+    return '<span class="txt">' + esc(opt) + '</span>';
+  }
+  // Reveal line: text answers print as before; picture answers add the picture.
+  function isPic(opt) { return !!(opt && typeof opt === "object" && opt.image); }
+  function optLabel(opt) { return isPic(opt) ? esc(opt.text || "") : esc(opt); }
+  function optPic(opt) {
+    return isPic(opt) ? '<img class="optimg" src="' + esc(opt.image) + '" alt="">' : '';
   }
 
   function esc(s) {

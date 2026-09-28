@@ -49,6 +49,8 @@
           min-height:90px; transition:opacity .25s, transform .25s; }
   .tile .letter { font-size:1.3em; font-weight:800; opacity:.85; min-width:1.2em; }
   .tile .txt { flex:1 1 auto; word-break:break-word; }
+  .tile .optimg { flex:1 1 auto; min-width:0; max-width:100%; max-height:26vh; object-fit:contain;
+                  background:#fff; border-radius:10px; }
   .tile .bar { position:absolute; left:0; bottom:0; height:6px; background:rgba(255,255,255,.85);
                width:0; border-radius:0 0 0 16px; transition:width .5s cubic-bezier(.2,.8,.2,1); }
   .tile .cnt { font-size:.7em; opacity:.9; font-weight:700; }
@@ -241,7 +243,7 @@
       const widthPct = reveal ? (counts[i] / maxCount * 100) : 0;
       return '<div class="' + cls.join(" ") + '">' +
         '<span class="letter">' + LETTERS[i] + '</span>' +
-        '<span class="txt">' + esc(opt) + '</span>' +
+        optHTML(opt) +
         (reveal ? '<span class="cnt">' + counts[i] + (i === answer ? ' <span class="check">✓</span>' : "") + '</span>' : "") +
         '<span class="bar" style="width:' + widthPct + '%"></span>' +
       '</div>';
@@ -384,6 +386,14 @@
       '<span class="nm">' + esc(name) + '</span>' +
       '<span class="sc">' + score + '</span>' +
     '</div>';
+  }
+
+  // An option is a string, or {image, text?} for a picture answer.
+  function optHTML(opt) {
+    if (opt && typeof opt === "object" && opt.image)
+      return '<img class="optimg" src="' + esc(opt.image) + '" alt="' + esc(opt.text || "") + '">' +
+             (opt.text ? '<span class="txt">' + esc(opt.text) + '</span>' : '');
+    return '<span class="txt">' + esc(opt) + '</span>';
   }
 
   function esc(s) {
