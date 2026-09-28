@@ -88,3 +88,17 @@ system, not here — the reasoning is in [SECURITY.md](SECURITY.md).
 - Moderation (approve-before-show) toggle for text/word-cloud polls.
 - Poll voting is still one-per-tap with a soft localStorage guard — fine for
   "add as many as you like" prompts, but it isn't a one-vote-per-person ballot.
+
+## Editing an existing poll or quiz
+
+Configs are create-only from the browser (students can't rewrite a question), but
+`editpoll.py` uses Grey's `gcloud` login (admin, bypasses the rules) to edit anything:
+
+    python3 editpoll.py show     <poll-id>
+    python3 editpoll.py question <poll-id> "New question text"
+    python3 editpoll.py options  <poll-id> "A" "B" ...          # mc
+    python3 editpoll.py range    <poll-id> <unit> <min> <max> <binWidth>   # number
+    python3 editpoll.py clear    <poll-id>                      # wipe responses
+    python3 editpoll.py delete   <poll-id>
+    python3 editpoll.py quiz       <quiz-id> quiz.json          # replace questions + key, reset game
+    python3 editpoll.py deletequiz <quiz-id>
