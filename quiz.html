@@ -26,7 +26,7 @@
   /* Lobby */
   .lobby { display:flex; gap:40px; flex-wrap:wrap; align-items:flex-start; }
   .qr { background:#fff; padding:14px; border-radius:14px; flex:0 0 auto; }
-  .joinurl { margin-top:14px; font-size:16px; color:#8b949e; }
+  .joinurl { margin-top:14px; font-size:clamp(16px,1.8vw,26px); color:#8b949e; }
   .joinurl b { color:#58a6ff; }
   .players { flex:1 1 320px; }
   .players h2 { font-size:16px; color:#8b949e; font-weight:600; margin:0 0 12px; }
@@ -91,7 +91,7 @@
 
 <script src="https://cdn.jsdelivr.net/gh/davidshimjs/qrcodejs@04f46c6a/qrcode.min.js"></script>
 <script type="module">
-  import { db, pageURL, makeQR, requireAuth, renderHostBar } from "./app.js";
+  import { db, pageURL, makeQR, qrSize, enlargeableQR, requireAuth, renderHostBar } from "./app.js";
   import { ref, set, update, get, onValue, remove, serverTimestamp }
     from "https://www.gstatic.com/firebasejs/10.12.2/firebase-database.js";
 
@@ -216,7 +216,8 @@
         (playerCount() ? '<button class="sec" id="reset">Reset (clear players)</button>' : "") +
         '<span class="answered">' + config.questions.length + ' questions</span>' +
       '</div>';
-    makeQR(document.getElementById("qr"), playURL, 200);
+    makeQR(document.getElementById("qr"), playURL, qrSize(0.55, 0.4));
+    enlargeableQR(document.getElementById("qr"), playURL);
     document.getElementById("start").onclick = () =>
       setState({ phase: "question", q: 0, startedAt: serverTimestamp(), correct: null, results: null });
     const rb = document.getElementById("reset");

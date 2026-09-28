@@ -12,9 +12,9 @@
          background:#0d1117; color:#e6edf3; overflow:hidden; }
   header { display:flex; align-items:center; gap:28px; padding:20px 32px;
            border-bottom:1px solid #21262d; flex:0 0 auto; }
-  .qr { background:#fff; padding:10px; border-radius:12px; flex:0 0 auto; }
+  .qr { background:#fff; padding:12px; border-radius:12px; flex:0 0 auto; line-height:0; }
   .question { font-size:clamp(22px,3.2vw,44px); font-weight:700; line-height:1.15; }
-  .join { margin-top:8px; font-size:15px; color:#8b949e; } .join b { color:#58a6ff; }
+  .join { margin-top:8px; font-size:clamp(15px,1.6vw,24px); color:#8b949e; } .join b { color:#58a6ff; }
   .right { margin-left:auto; display:flex; flex-direction:column; align-items:flex-end; gap:10px; }
   .count { font-size:14px; color:#8b949e; white-space:nowrap; }
   .clear { background:#21262d; color:#8b949e; border:1px solid #30363d; border-radius:8px;
@@ -71,7 +71,7 @@
 
 <script src="https://cdn.jsdelivr.net/gh/davidshimjs/qrcodejs@04f46c6a/qrcode.min.js"></script>
 <script type="module">
-  import { db, pollId, pageURL, makeQR, requireAuth, amHost } from "./app.js";
+  import { db, pollId, pageURL, makeQR, qrSize, enlargeableQR, requireAuth, amHost } from "./app.js";
   import { ref, onValue, onChildAdded, onChildRemoved, query, limitToLast, remove }
     from "https://www.gstatic.com/firebasejs/10.12.2/firebase-database.js";
 
@@ -89,7 +89,8 @@
     }
     const submitURL = pageURL("submit.html", id);
     document.getElementById("joinurl").textContent = submitURL.replace(/^https?:\/\//, "");
-    makeQR(document.getElementById("qr"), submitURL, 150);
+    makeQR(document.getElementById("qr"), submitURL, qrSize(0.3, 0.25));
+    enlargeableQR(document.getElementById("qr"), submitURL);
 
     // Clearing is host-only; the rules reject it from a student session.
     if (await amHost()) {

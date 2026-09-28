@@ -113,7 +113,33 @@ export function slugify(s) {
 // Render a QR code into an element (uses the global QRCode from the CDN script tag)
 export function makeQR(el, text, size = 150) {
   el.innerHTML = "";
-  new QRCode(el, { text, width: size, height: size });
+  // Medium error correction = fewer, larger modules: scans from the back of a lecture hall.
+  new QRCode(el, { text, width: size, height: size, correctLevel: QRCode.CorrectLevel.M });
+}
+
+// QR size as a fraction of the screen, so it's big on a projector (min 150px).
+export function qrSize(fracH = 0.3, fracW = 0.25) {
+  return Math.max(150, Math.round(Math.min(window.innerHeight * fracH, window.innerWidth * fracW)));
+}
+
+// Click-to-enlarge: tapping the QR opens a full-screen QR; tap again to close.
+export function enlargeableQR(el, text) {
+  el.style.cursor = "zoom-in";
+  el.title = "Click to show a full-screen QR";
+  el.onclick = () => {
+    const ov = document.createElement("div");
+    ov.style.cssText = "position:fixed;inset:0;background:rgba(13,17,23,.96);display:flex;" +
+      "flex-direction:column;align-items:center;justify-content:center;gap:18px;z-index:9999;cursor:zoom-out;";
+    const box = document.createElement("div");
+    box.style.cssText = "background:#fff;padding:24px;border-radius:18px;";
+    const cap = document.createElement("div");
+    cap.style.cssText = "color:#e6edf3;font:600 clamp(18px,2.4vw,32px) -apple-system,Segoe UI,sans-serif;";
+    cap.textContent = text.replace(/^https?:\/\//, "");
+    ov.append(box, cap);
+    document.body.appendChild(ov);
+    makeQR(box, text, Math.round(Math.min(window.innerHeight, window.innerWidth) * 0.78));
+    ov.onclick = () => ov.remove();
+  };
 }
 
 export function notConfigured(msg = "Firebase not configured. Paste your config into firebase-config.js.") {
