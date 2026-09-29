@@ -137,6 +137,20 @@
       "$sid": {
         ".write": "auth != null && root.child('admin/hostUid').val() === auth.uid",
         "config": { ".read": true },
+        // groups/<n>: the first phone to pick group n names it (create-only);
+        // everyone after joins it. Group n is assigned zone n (zones.geojson).
+        "groups": {
+          ".read": "auth != null",
+          "$g": {
+            ".write": "auth != null && !data.exists() && newData.child('uid').val() === auth.uid",
+            ".validate": "$g.matches(/^([1-9]|1[0-2])$/) && newData.hasChildren(['name', 'zone', 'uid', 'ts'])",
+            "name":   { ".validate": "newData.isString() && newData.val().length > 0 && newData.val().length <= 30" },
+            "zone":   { ".validate": "newData.isString() && newData.val().length <= 40" },
+            "uid":    { ".validate": "newData.isString()" },
+            "ts":     { ".validate": "newData.val() === now" },
+            "$other": { ".validate": false }
+          }
+        },
         "obs": {
           ".read": "auth != null",
           "$oid": {
@@ -152,6 +166,9 @@
             "lat":      { ".validate": "newData.isNumber() && newData.val() > 38.4 && newData.val() < 38.7" },
             "lng":      { ".validate": "newData.isNumber() && newData.val() > -121.9 && newData.val() < -121.6" },
             "hasPhoto": { ".validate": "newData.isBoolean()" },
+            "group":    { ".validate": "newData.isNumber() && newData.val() >= 1 && newData.val() <= 12" },
+            "assignedZone": { ".validate": "newData.isString() && newData.val().length <= 40" },
+            "zoneSource":   { ".validate": "newData.val() === 'gps' || newData.val() === 'assigned'" },
             "uid":      { ".validate": "newData.isString()" },
             "ts":       { ".validate": "newData.val() === now" },
             "$other":   { ".validate": false }
