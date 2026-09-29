@@ -125,6 +125,49 @@
           }
         }
       }
+    },
+
+    // Campus Census (repo em-campus-census). Field-survey observations from
+    // anonymous student sessions. No names, no accounts: team name + species.
+    //   config        written by the host / admin script only
+    //   obs/<id>      create-only by any signed-in device; the author (same
+    //                 anonymous uid) or the host may delete it ("undo")
+    //   photos/<id>   the photo for obs <id>, same author rules, <= ~380 KB
+    "census": {
+      "$sid": {
+        ".write": "auth != null && root.child('admin/hostUid').val() === auth.uid",
+        "config": { ".read": true },
+        "obs": {
+          ".read": "auth != null",
+          "$oid": {
+            ".write": "auth != null && ((!data.exists() && newData.child('uid').val() === auth.uid) || (data.exists() && !newData.exists() && data.child('uid').val() === auth.uid))",
+            ".validate": "newData.hasChildren(['team', 'kind', 'name', 'count', 'uid', 'ts'])",
+            "team":     { ".validate": "newData.isString() && newData.val().length > 0 && newData.val().length <= 30" },
+            "kind":     { ".validate": "newData.isString() && newData.val().matches(/^(plant|insect|bird|animal|squirrel|turkey)$/)" },
+            "name":     { ".validate": "newData.isString() && newData.val().length > 0 && newData.val().length <= 80" },
+            "count":    { ".validate": "newData.isNumber() && newData.val() >= 1 && newData.val() <= 500" },
+            "sci":      { ".validate": "newData.isString() && newData.val().length <= 120" },
+            "taxonId":  { ".validate": "newData.isNumber()" },
+            "zone":     { ".validate": "newData.isString() && newData.val().length <= 40" },
+            "lat":      { ".validate": "newData.isNumber() && newData.val() > 38.4 && newData.val() < 38.7" },
+            "lng":      { ".validate": "newData.isNumber() && newData.val() > -121.9 && newData.val() < -121.6" },
+            "hasPhoto": { ".validate": "newData.isBoolean()" },
+            "uid":      { ".validate": "newData.isString()" },
+            "ts":       { ".validate": "newData.val() === now" },
+            "$other":   { ".validate": false }
+          }
+        },
+        "photos": {
+          ".read": "auth != null",
+          "$oid": {
+            ".write": "auth != null && ((!data.exists() && newData.child('uid').val() === auth.uid) || (data.exists() && !newData.exists() && data.child('uid').val() === auth.uid))",
+            ".validate": "newData.hasChildren(['data', 'uid'])",
+            "data":   { ".validate": "newData.isString() && newData.val().beginsWith('data:image/jpeg;base64,') && newData.val().length <= 400000" },
+            "uid":    { ".validate": "newData.isString()" },
+            "$other": { ".validate": false }
+          }
+        }
+      }
     }
   }
 }
