@@ -42,6 +42,11 @@
   .muted { color:#8b949e; font-size:15px; }
   .err { color:#f85149; font-size:15px; line-height:1.5; }
   .you { color:#8b949e; font-size:14px; text-align:center; }
+  .ptimer { display:flex; align-items:center; gap:10px; }
+  .ptimer .secs { font-size:26px; font-weight:800; min-width:40px; font-variant-numeric:tabular-nums; }
+  .ptimer .tbar { flex:1; height:10px; background:#21262d; border-radius:5px; overflow:hidden; }
+  .ptimer .tbar i { display:block; height:100%; width:100%; background:#1f6feb; transition:width .2s linear; }
+  .ptimer.low .secs { color:#f85149; } .ptimer.low .tbar i { background:#f85149; }
   .fineprint { color:#6e7681; font-size:13px; line-height:1.5; text-align:center; }
 </style>
 </head>
@@ -65,6 +70,7 @@
   // scope reads and writes to this player alone.
   let config = null, state = null, myId = null, myName = null;
   let locked = false, myChoice = null, myRank = null, myScore = 0;
+  let serverOffset = 0, timeUp = false;   // countdown mirrors the host's (server clock)
 
   start();
 
@@ -85,9 +91,29 @@
     listen();
   }
 
+  // Seconds left on the current question, or null if there's no timer.
+  function secondsLeft() {
+    if (!state || state.phase !== "question" || typeof state.startedAt !== "number" || !state.limit) return null;
+    return Math.max(0, state.limit - (Date.now() + serverOffset - state.startedAt) / 1000);
+  }
+  function tick() {
+    const left = secondsLeft();
+    if (left === null) return;
+    const secs = document.getElementById("psecs"), bar = document.getElementById("pbar");
+    if (secs) secs.textContent = Math.ceil(left);
+    if (bar) bar.style.width = (left / state.limit * 100) + "%";
+    const box = document.getElementById("ptimer");
+    if (box) box.classList.toggle("low", left <= 5);
+    if (left <= 0 && !timeUp) { timeUp = true; if (!locked) render(); }
+  }
+
   function listen() {
+    onValue(ref(db, ".info/serverTimeOffset"), (s) => { serverOffset = s.val() || 0; });
+    setInterval(tick, 200);
     onValue(ref(db, base + "/state"), async (s) => {
+      const prevKey = state ? state.q + "@" + state.startedAt : "";
       state = s.val();
+      if (!state || state.q + "@" + state.startedAt !== prevKey) timeUp = false;
       const phase = state ? state.phase : "lobby";
       // The host erases the roster at the end of a game. Re-claim our slot any
       // other time, so a mid-game reset or a reconnect doesn't drop us out.
@@ -187,12 +213,24 @@
       return;
     }
 
+    const left = secondsLeft();
+    if (left !== null && left <= 0) {
+      root.innerHTML =
+        '<div class="card"><p class="big">Time\'s up ⏰</p>' +
+        '<p class="muted">No answer this round. Watch the screen for the answer.</p></div>' + youLine();
+      return;
+    }
+    const timer = left === null ? '' :
+      '<div class="ptimer" id="ptimer"><span class="secs" id="psecs">' + Math.ceil(left) +
+      '</span><div class="tbar"><i id="pbar" style="width:' + (left / state.limit * 100) + '%"></i></div></div>';
+
     const tiles = q.options.map((opt, i) =>
       '<button class="tile c' + i + '" data-i="' + i + '">' +
         '<span class="letter">' + LETTERS[i] + '</span>' +
         optHTML(opt) +
       '</button>').join("");
     root.innerHTML =
+      timer +
       '<h1>Q' + (qi + 1) + '. ' + esc(q.q) + '</h1>' +
       (q.image ? '<img class="qimg" src="' + esc(q.image) + '" alt="">' : '') +
       '<p class="sub">Tap your answer.</p>' +
@@ -205,6 +243,8 @@
 
   async function submitAnswer(qi, choice) {
     if (locked) return;
+    const left = secondsLeft();
+    if (left !== null && left <= 0) { render(); return; }   // too late
     locked = true; myChoice = choice;
     render();                               // lock the UI immediately
     try {

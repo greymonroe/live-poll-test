@@ -14,6 +14,11 @@ per-poll.
 - `quiz.html?quiz=ID` — **Kahoot-style quiz host** (big screen, controls the game). A presentation
   clicker (PageDown) or →/↓ presses the on-screen primary button: Start → Reveal → Leaderboard →
   Next → Finish. Reset / Run it again stay mouse-only.
+  **Timer:** each question counts down on the screen and the phones (20 s, or 30 s when the question
+  text is over 90 characters; set `"time": <seconds>` on a question in the quiz JSON to override).
+  The answer auto-reveals at 0 or as soon as every player has answered; the speed bonus scales to
+  that question's limit. A clicker press within 1 s of any screen change is ignored, so an
+  auto-reveal can't be skipped by accident.
 - `quiz-play.html?quiz=ID` — **quiz player** (phone).
 - `app.js` — shared helpers + Firebase init + sign-in.
 - `firebase-config.js` — paste your Firebase config here once (instructions inside).

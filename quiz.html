@@ -80,6 +80,11 @@
   .row.top1 { border-color:#d9a420; } .row.top1 .rank { color:#d9a420; }
   .row.top2 { border-color:#8b949e; } .row.top3 { border-color:#b06a2c; }
   .center { text-align:center; }
+  .timer { display:flex; align-items:center; gap:14px; margin:0 0 14px; }
+  .timer .secs { font-size:44px; font-weight:800; min-width:70px; text-align:right; font-variant-numeric:tabular-nums; }
+  .timer .tbar { flex:1; height:14px; background:#21262d; border-radius:7px; overflow:hidden; }
+  .timer .tbar i { display:block; height:100%; width:100%; background:#1f6feb; transition:width .2s linear; }
+  .timer.low .secs { color:#f85149; } .timer.low .tbar i { background:#f85149; }
   .wiped { text-align:center; color:#6e7681; font-size:15px; margin-top:18px; line-height:1.5; }
 </style>
 </head>
@@ -97,7 +102,14 @@
   import { ref, set, update, get, onValue, remove, serverTimestamp }
     from "https://www.gstatic.com/firebasejs/10.12.2/firebase-database.js";
 
-  const LIMIT = 20;                        // seconds; full speed bonus window
+  const LIMIT = 20;                        // seconds; default per-question time limit
+  const LONG_LIMIT = 30;                   // for long questions (verbatim definitions, calculations)
+  const LONG_CHARS = 90;                   // question text longer than this gets LONG_LIMIT
+  // Per-question limit: an explicit "time" (seconds) in the quiz JSON wins; otherwise by length.
+  const limitFor = (qi) => {
+    const q = config.questions[qi] || {};
+    return Number(q.time) > 0 ? Number(q.time) : (String(q.q || "").length > LONG_CHARS ? LONG_LIMIT : LIMIT);
+  };
   const MAX_POINTS = 1000;
   const STALE_MS = 6 * 60 * 60 * 1000;     // a roster older than this is last class's
 
@@ -111,6 +123,9 @@
   const LETTERS = ["A", "B", "C", "D"];
 
   let state = null, players = {}, answersUnsub = null, currentAnswers = {}, watchingQ = -1;
+  let serverOffset = 0;                   // ms; Firebase server clock minus ours
+  let autoRevealed = null;                 // "q@startedAt" already auto-revealed
+  let lastScreen = "", lastScreenAt = 0;  // for ignoring clicker presses right after a screen change
   let finalBoard = null;                   // in-memory copy so the final screen survives the wipe
 
   start();
@@ -128,6 +143,7 @@
     e.preventDefault();
     const now = Date.now();
     if (now - lastAdvance < 800) return;   // one click = one step, even if the DB re-renders
+    if (now - lastScreenAt < 1000) return; // screen just changed (e.g. timer auto-revealed): don't skip it
     const btn = ADVANCE_BUTTONS.map(b => document.getElementById(b)).find(b => b && !b.disabled);
     if (!btn) return;
     lastAdvance = now;
@@ -167,6 +183,9 @@
     const age = prev && prev.startedAt ? Date.now() - prev.startedAt : Infinity;
     if (prev && prev.phase !== "lobby" && age > STALE_MS) await wipeRoster();
 
+    onValue(ref(db, ".info/serverTimeOffset"), (s) => { serverOffset = s.val() || 0; });
+    setInterval(tick, 200);
+
     onValue(ref(db, base + "/players"), (s) => { players = s.val() || {}; renderForState(); });
     onValue(ref(db, base + "/state"), (s) => { state = s.val(); renderForState(); });
   }
@@ -205,6 +224,8 @@
   function renderForState() {
     if (!config) return;
     const phase = state ? state.phase : "lobby";
+    const screen = phase + ":" + (state ? state.q : 0);
+    if (screen !== lastScreen) { lastScreen = screen; lastScreenAt = Date.now(); }
     metaEl.textContent = playerCount() + " player" + (playerCount() === 1 ? "" : "s");
     if (phase === "lobby" || !state) return renderLobby();
     if (phase === "question") { watchAnswers(state.q); return renderQuestion(false); }
@@ -240,7 +261,7 @@
     makeQR(document.getElementById("qr"), playURL, qrSize(0.55, 0.4));
     enlargeableQR(document.getElementById("qr"), playURL);
     document.getElementById("start").onclick = () =>
-      setState({ phase: "question", q: 0, startedAt: serverTimestamp(), correct: null, results: null });
+      setState({ phase: "question", q: 0, startedAt: serverTimestamp(), limit: limitFor(0), correct: null, results: null });
     const rb = document.getElementById("reset");
     if (rb) rb.onclick = () => { if (confirm("Clear all joined players and scores?")) resetGame(); };
   }
@@ -276,6 +297,7 @@
     main.innerHTML =
       '<div class="qprogress answered" style="margin-bottom:14px">Question ' + (qi + 1) +
         ' of ' + config.questions.length + '</div>' +
+      (reveal ? '' : '<div class="timer" id="timer"><span class="secs" id="tsecs"></span><div class="tbar"><i id="tbar"></i></div></div>') +
       '<h1 class="qtext">' + esc(q.q) + '</h1>' +
       (q.image ? '<img class="qimg" src="' + esc(q.image) + '" alt="">' : '') +
       '<div class="tiles">' + tiles + '</div>' +
@@ -283,6 +305,7 @@
 
     if (!reveal) {
       document.getElementById("reveal").onclick = doReveal;
+      tick();
     } else {
       document.getElementById("board").onclick = publishRanks;
     }
@@ -305,7 +328,32 @@
   //
   // Revealing also publishes the correct index into state.correct, which is how
   // phones learn the answer. It is never in the config they download.
+  let revealing = false;
   async function doReveal() {
+    if (revealing || !state || state.phase !== "question") return;
+    revealing = true;
+    try { await revealNow(); } finally { revealing = false; }
+  }
+
+  // Countdown on the big screen; auto-reveals when time is up or everyone has answered.
+  function tick() {
+    if (!config || !state || state.phase !== "question" || typeof state.startedAt !== "number") return;
+    const limit = state.limit || limitFor(state.q);
+    const left = Math.max(0, limit - (Date.now() + serverOffset - state.startedAt) / 1000);
+    const secs = document.getElementById("tsecs"), bar = document.getElementById("tbar");
+    if (secs) secs.textContent = Math.ceil(left);
+    if (bar) bar.style.width = (left / limit * 100) + "%";
+    const box = document.getElementById("timer");
+    if (box) box.classList.toggle("low", left <= 5);
+    const n = playerCount(), answered = Object.keys(currentAnswers).length;
+    const tag = state.q + "@" + state.startedAt;
+    if (autoRevealed !== tag && (left <= 0 || (n > 0 && answered >= n))) {
+      autoRevealed = tag;
+      doReveal();
+    }
+  }
+
+  async function revealNow() {
     const qi = state.q;
     const answer = KEY[qi];
     const startedAt = state.startedAt || Date.now();
@@ -319,7 +367,8 @@
       if (a.choice === answer) {
         // a.ts is a server timestamp, so this window can't be gamed client-side.
         const elapsed = Math.max(0, ((a.ts || startedAt) - startedAt) / 1000);
-        const frac = Math.min(elapsed, LIMIT) / LIMIT;
+        const win = state.limit || limitFor(qi);
+        const frac = Math.min(elapsed, win) / win;
         pts = Math.round(MAX_POINTS * (1 - 0.5 * frac));
       }
       const prevAward = (players[pid] && players[pid].awarded && players[pid].awarded[qi]) || 0;
@@ -392,7 +441,7 @@
       document.getElementById("finish").onclick = finishGame;
     } else {
       document.getElementById("next").onclick = () =>
-        setState({ phase: "question", q: qi + 1, startedAt: serverTimestamp(), correct: null });
+        setState({ phase: "question", q: qi + 1, startedAt: serverTimestamp(), limit: limitFor(qi + 1), correct: null });
     }
   }
 
