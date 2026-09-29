@@ -115,6 +115,25 @@
 
   start();
 
+  // Presentation clicker / keyboard: forward keys press whichever primary button is
+  // on screen (Start → Reveal → Leaderboard → Next → Finish). Clickers send PageDown
+  // (some send arrows). Destructive buttons (reset, run again) are never keyed.
+  // Space/Enter are left alone so a mouse-focused button isn't pressed twice.
+  const ADVANCE_KEYS = ["PageDown", "ArrowRight", "ArrowDown"];
+  const ADVANCE_BUTTONS = ["start", "reveal", "board", "next", "finish"];
+  let lastAdvance = 0;
+  document.addEventListener("keydown", (e) => {
+    if (!ADVANCE_KEYS.includes(e.key) || e.repeat) return;
+    if (/^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement?.tagName)) return;
+    e.preventDefault();
+    const now = Date.now();
+    if (now - lastAdvance < 800) return;   // one click = one step, even if the DB re-renders
+    const btn = ADVANCE_BUTTONS.map(b => document.getElementById(b)).find(b => b && !b.disabled);
+    if (!btn) return;
+    lastAdvance = now;
+    btn.click();
+  });
+
   async function start() {
     const user = await requireAuth();
     if (!user) return;
@@ -216,7 +235,7 @@
       '<div class="controls">' +
         '<button id="start"' + (playerCount() ? "" : " disabled") + '>Start quiz</button>' +
         (playerCount() ? '<button class="sec" id="reset">Reset (clear players)</button>' : "") +
-        '<span class="answered">' + config.questions.length + ' questions</span>' +
+        '<span class="answered">' + config.questions.length + ' questions · clicker or → advances</span>' +
       '</div>';
     makeQR(document.getElementById("qr"), playURL, qrSize(0.55, 0.4));
     enlargeableQR(document.getElementById("qr"), playURL);

@@ -11,7 +11,9 @@ per-poll.
 - `index.html` — **poll list** (read-only): open a display, grab a QR, clear results, or delete.
 - `display.html?poll=ID` — **big screen** for one poll: QR + live results (text wall, bar chart, or word cloud) + a Clear button.
 - `submit.html?poll=ID` — **phone view**: text box or tappable options depending on type.
-- `quiz.html?quiz=ID` — **Kahoot-style quiz host** (big screen, controls the game).
+- `quiz.html?quiz=ID` — **Kahoot-style quiz host** (big screen, controls the game). A presentation
+  clicker (PageDown) or →/↓ presses the on-screen primary button: Start → Reveal → Leaderboard →
+  Next → Finish. Reset / Run it again stay mouse-only.
 - `quiz-play.html?quiz=ID` — **quiz player** (phone).
 - `app.js` — shared helpers + Firebase init + sign-in.
 - `firebase-config.js` — paste your Firebase config here once (instructions inside).
