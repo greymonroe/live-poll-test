@@ -130,9 +130,9 @@
     // Campus Census (repo em-campus-census). Field-survey observations from
     // anonymous student sessions. No names, no accounts: team name + species.
     //   config        written by the host / admin script only
-    //   obs/<id>      create-only by any signed-in device; the author (same
-    //                 anonymous uid) or the host may delete it ("undo")
-    //   photos/<id>   the photo for obs <id>, same author rules, <= ~380 KB
+    //   obs/<id>      create-only by any signed-in device; only the host deletes.
+    //                 No uid is stored, so nothing links one phone's entries.
+    //   photos/<id>   the photo for obs <id>, create-only, host-read only, <= ~380 KB
     "census": {
       "$sid": {
         ".write": "auth != null && root.child('admin/hostUid').val() === auth.uid",
@@ -142,11 +142,10 @@
         "groups": {
           ".read": "auth != null",
           "$g": {
-            ".write": "auth != null && !data.exists() && newData.child('uid').val() === auth.uid",
-            ".validate": "$g.matches(/^([1-9]|1[0-2])$/) && newData.hasChildren(['name', 'zone', 'uid', 'ts'])",
+            ".write": "auth != null && !data.exists()",
+            ".validate": "$g.matches(/^([1-9]|1[0-2])$/) && newData.hasChildren(['name', 'zone', 'ts'])",
             "name":   { ".validate": "newData.isString() && newData.val().length > 0 && newData.val().length <= 30" },
             "zone":   { ".validate": "newData.isString() && newData.val().length <= 40" },
-            "uid":    { ".validate": "newData.isString()" },
             "ts":     { ".validate": "newData.val() === now" },
             "$other": { ".validate": false }
           }
@@ -154,8 +153,8 @@
         "obs": {
           ".read": "auth != null",
           "$oid": {
-            ".write": "auth != null && ((!data.exists() && newData.child('uid').val() === auth.uid) || (data.exists() && !newData.exists() && data.child('uid').val() === auth.uid))",
-            ".validate": "newData.hasChildren(['team', 'kind', 'name', 'count', 'uid', 'ts'])",
+            ".write": "auth != null && !data.exists()",
+            ".validate": "newData.hasChildren(['team', 'kind', 'name', 'count', 'ts'])",
             "team":     { ".validate": "newData.isString() && newData.val().length > 0 && newData.val().length <= 30" },
             "kind":     { ".validate": "newData.isString() && newData.val().matches(/^(plant|insect|bird|animal|squirrel|turkey)$/)" },
             "name":     { ".validate": "newData.isString() && newData.val().length > 0 && newData.val().length <= 80" },
@@ -170,18 +169,16 @@
             "group":    { ".validate": "newData.isNumber() && newData.val() >= 1 && newData.val() <= 12" },
             "assignedZone": { ".validate": "newData.isString() && newData.val().length <= 40" },
             "zoneSource":   { ".validate": "newData.val() === 'gps' || newData.val() === 'assigned'" },
-            "uid":      { ".validate": "newData.isString()" },
             "ts":       { ".validate": "newData.val() === now" },
             "$other":   { ".validate": false }
           }
         },
         "photos": {
-          ".read": "auth != null",
+          ".read": "auth != null && root.child('admin/hostUid').val() === auth.uid",
           "$oid": {
-            ".write": "auth != null && ((!data.exists() && newData.child('uid').val() === auth.uid) || (data.exists() && !newData.exists() && data.child('uid').val() === auth.uid))",
-            ".validate": "newData.hasChildren(['data', 'uid'])",
+            ".write": "auth != null && !data.exists()",
+            ".validate": "newData.hasChildren(['data'])",
             "data":   { ".validate": "newData.isString() && newData.val().beginsWith('data:image/jpeg;base64,') && newData.val().length <= 400000" },
-            "uid":    { ".validate": "newData.isString()" },
             "$other": { ".validate": false }
           }
         }
