@@ -166,6 +166,7 @@
             "lat":      { ".validate": "newData.isNumber() && newData.val() > 38.4 && newData.val() < 38.7" },
             "lng":      { ".validate": "newData.isNumber() && newData.val() > -121.9 && newData.val() < -121.6" },
             "hasPhoto": { ".validate": "newData.isBoolean()" },
+            "acc":      { ".validate": "newData.isNumber() && newData.val() >= 0 && newData.val() <= 100000" },
             "group":    { ".validate": "newData.isNumber() && newData.val() >= 1 && newData.val() <= 12" },
             "assignedZone": { ".validate": "newData.isString() && newData.val().length <= 40" },
             "zoneSource":   { ".validate": "newData.val() === 'gps' || newData.val() === 'assigned'" },
