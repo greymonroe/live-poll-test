@@ -168,7 +168,8 @@
             "acc":      { ".validate": "newData.isNumber() && newData.val() >= 0 && newData.val() <= 100000" },
             "group":    { ".validate": "newData.isNumber() && newData.val() >= 1 && newData.val() <= 12" },
             "assignedZone": { ".validate": "newData.isString() && newData.val().length <= 40" },
-            "zoneSource":   { ".validate": "newData.val() === 'gps' || newData.val() === 'assigned'" },
+            "zoneSource":   { ".validate": "newData.val() === 'gps' || newData.val() === 'pin' || newData.val() === 'assigned'" },
+            "locSource":    { ".validate": "newData.val() === 'gps' || newData.val() === 'pin'" },
             "ts":       { ".validate": "newData.val() === now" },
             "$other":   { ".validate": false }
           }
