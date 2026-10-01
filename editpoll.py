@@ -11,6 +11,7 @@ Usage:
   python3 editpoll.py question <poll-id> "New question text"
   python3 editpoll.py options  <poll-id> "Option A" "Option B" [more...]      (mc)
   python3 editpoll.py range    <poll-id> <unit> <min> <max> <binWidth>       (number)
+  python3 editpoll.py multi    <poll-id> on|off                            (number: many entries per person)
   python3 editpoll.py clear    <poll-id>          # delete responses, keep the poll
   python3 editpoll.py delete   <poll-id>          # delete the poll entirely
 
@@ -78,14 +79,24 @@ def main() -> None:
         call("PUT", f"polls/{pid}/config/options", rest)
         print(f'Updated options of "{pid}" (consider `clear` — old votes refer to old options)')
     elif cmd == "range":
-        if poll_config(pid).get("type") != "number":
+        cfg = poll_config(pid)
+        if cfg.get("type") != "number":
             sys.exit("range only applies to number polls")
         if len(rest) != 4:
             sys.exit("usage: range <poll-id> <unit> <min> <max> <binWidth>")
         unit, lo, hi, bw = rest
-        call("PUT", f"polls/{pid}/config/options",
-             {"unit": unit, "min": float(lo), "max": float(hi), "binWidth": float(bw)})
+        opts = {"unit": unit, "min": float(lo), "max": float(hi), "binWidth": float(bw)}
+        if (cfg.get("options") or {}).get("multi"):
+            opts["multi"] = True
+        call("PUT", f"polls/{pid}/config/options", opts)
         print(f'Updated range of "{pid}"')
+    elif cmd == "multi":
+        if poll_config(pid).get("type") != "number":
+            sys.exit("multi only applies to number polls")
+        if rest not in (["on"], ["off"]):
+            sys.exit("usage: multi <poll-id> on|off")
+        call("PUT", f"polls/{pid}/config/options/multi", rest[0] == "on")
+        print(f'Multiple entries per person {rest[0]} for "{pid}"')
     elif cmd == "clear":
         poll_config(pid)
         call("DELETE", f"polls/{pid}/responses")

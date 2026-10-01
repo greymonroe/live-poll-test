@@ -106,6 +106,7 @@ Configs are create-only from the browser (students can't rewrite a question), bu
     python3 editpoll.py question <poll-id> "New question text"
     python3 editpoll.py options  <poll-id> "A" "B" ...          # mc
     python3 editpoll.py range    <poll-id> <unit> <min> <max> <binWidth>   # number
+    python3 editpoll.py multi    <poll-id> on|off                       # number: many entries per person (e.g. CLT sims)
     python3 editpoll.py clear    <poll-id>                      # wipe responses
     python3 editpoll.py delete   <poll-id>
     python3 editpoll.py quiz       <quiz-id> quiz.json          # replace questions + key, reset game
