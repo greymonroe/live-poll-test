@@ -127,6 +127,49 @@
       }
     },
 
+    // Soil Map (repo em-soil-map). Soil samples from anonymous student sessions.
+    // No names, no uid. Location is rounded to 0.01 degree (~1 km) on the phone and
+    // stored as integers (lat100/lng100), so an exact home location can't be saved.
+    //   config          host only
+    //   samples/<id>    create-only by any signed-in device; only the host deletes.
+    "soil": {
+      "$sid": {
+        ".write": "auth != null && root.child('admin/hostUid').val() === auth.uid",
+        "config": { ".read": true },
+        "samples": {
+          ".read": "auth != null",
+          "$id": {
+            ".write": "auth != null && !data.exists()",
+            ".validate": "newData.hasChildren(['label', 'lat100', 'lng100', 'color', 'texture', 'ts'])",
+            "label":    { ".validate": "newData.isString() && newData.val().length > 0 && newData.val().length <= 30" },
+            // location stored as INTEGER hundredths of a degree (3868 = 38.68), so
+            // nothing finer than ~1 km can be written
+            "lat100":   { ".validate": "newData.isNumber() && newData.val() % 1 === 0 && newData.val() > 3200 && newData.val() < 4210" },
+            "lng100":   { ".validate": "newData.isNumber() && newData.val() % 1 === 0 && newData.val() > -12450 && newData.val() < -11400" },
+            "place":    { ".validate": "newData.isString() && newData.val().matches(/^(yard|park|school|farm|creek|other)$/)" },
+            "color":    { ".validate": "newData.isString() && newData.val().matches(/^(black|darkbrown|brown|tan|reddish|yellowish|gray)$/)" },
+            "texture":  { ".validate": "newData.isString() && newData.val().matches(/^(sand|loamy sand|sandy loam|loam|silt loam|silt|sandy clay loam|clay loam|silty clay loam|sandy clay|silty clay|clay|unsure)$/)" },
+            "moisture": { ".validate": "newData.isString() && newData.val().matches(/^(dry|moist|wet)$/)" },
+            "roots":    { ".validate": "newData.isString() && newData.val().matches(/^(none|few|many)$/)" },
+            "critters": { ".validate": "newData.isNumber() && newData.val() >= 0 && newData.val() <= 99" },
+            "fizz":     { ".validate": "newData.isString() && newData.val().matches(/^(none|slight|strong)$/)" },
+            "ph":       { ".validate": "newData.isNumber() && newData.val() >= 1 && newData.val() <= 14" },
+            "hyp":      { ".validate": "newData.isString() && newData.val().length <= 200" },
+            "dbMap":     { ".validate": "newData.isString() && newData.val().length <= 120" },
+            "dbSeries":  { ".validate": "newData.isString() && newData.val().length <= 60" },
+            "dbTexture": { ".validate": "newData.isString() && newData.val().length <= 60" },
+            "dbDrain":   { ".validate": "newData.isString() && newData.val().length <= 40" },
+            "dbOrder":   { ".validate": "newData.isString() && newData.val().length <= 30" },
+            "dbPh":      { ".validate": "newData.isNumber()" },
+            "dbOm":      { ".validate": "newData.isNumber()" },
+            "dbClay":    { ".validate": "newData.isNumber()" },
+            "ts":       { ".validate": "newData.val() === now" },
+            "$other":   { ".validate": false }
+          }
+        }
+      }
+    },
+
     // Campus Census (repo em-campus-census). Field-survey observations from
     // anonymous student sessions. No names, no accounts: team name + species.
     //   config        written by the host / admin script only
