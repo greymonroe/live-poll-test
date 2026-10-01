@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Debate — Display</title>
+<style>
+  :root { color-scheme: dark; --pro:#2ea043; --anti:#f85149; }
+  * { box-sizing: border-box; }
+  body { margin:0; height:100vh; display:flex; flex-direction:column; overflow:hidden;
+         font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
+         background:#0d1117; color:#e6edf3; }
+  header { display:flex; align-items:center; gap:24px; padding:14px 28px; border-bottom:1px solid #21262d; }
+  .qr { background:#fff; padding:10px; border-radius:12px; line-height:0; flex:0 0 auto; }
+  .question { font-size:clamp(20px,2.6vw,38px); font-weight:800; line-height:1.15; }
+  .join { margin-top:6px; font-size:clamp(14px,1.4vw,20px); color:#8b949e; } .join b { color:#58a6ff; }
+  .right { margin-left:auto; display:flex; flex-direction:column; align-items:flex-end; gap:8px; }
+  .clear { background:#21262d; color:#8b949e; border:1px solid #30363d; border-radius:8px; padding:6px 12px; cursor:pointer; }
+  .tug { display:flex; height:16px; margin:0 28px; border-radius:999px; overflow:hidden; background:#21262d; }
+  .tug div { transition:flex-grow .6s cubic-bezier(.2,.8,.2,1); }
+  .tug .p { background:var(--pro); flex-grow:1; } .tug .a { background:var(--anti); flex-grow:1; }
+  main { flex:1; display:grid; grid-template-columns:1fr 1fr; gap:0; min-height:0; }
+  .col { display:flex; flex-direction:column; min-height:0; padding:14px 20px; }
+  .col.pro { border-right:2px solid #21262d; }
+  .colhead { display:flex; justify-content:space-between; align-items:baseline; padding:4px 6px 12px;
+             font-weight:900; font-size:clamp(24px,3vw,44px); letter-spacing:.04em; }
+  .pro .colhead { color:var(--pro); } .anti .colhead { color:var(--anti); }
+  .colhead small { font-size:.45em; color:#8b949e; font-weight:600; letter-spacing:0; }
+  .feed { flex:1; overflow-y:auto; display:flex; flex-direction:column; gap:12px; padding:4px; }
+  .msg { position:relative; background:#161b22; border:1px solid #30363d; border-radius:18px; padding:14px 18px 10px;
+         font-size:clamp(17px,1.9vw,27px); line-height:1.3; word-break:break-word; }
+  .pro .msg { border-left:6px solid var(--pro); animation:inL .45s cubic-bezier(.2,.9,.3,1.3); border-bottom-left-radius:4px; }
+  .anti .msg { border-right:6px solid var(--anti); animation:inR .45s cubic-bezier(.2,.9,.3,1.3); border-bottom-right-radius:4px; }
+  @keyframes inL { from{opacity:0;transform:translateX(-40px) scale(.9);} to{opacity:1;transform:none;} }
+  @keyframes inR { from{opacity:0;transform:translateX(40px) scale(.9);} to{opacity:1;transform:none;} }
+  .reacts { display:flex; gap:8px; margin-top:8px; flex-wrap:wrap; min-height:4px; }
+  .chip { font-size:.75em; background:#21262d; border-radius:999px; padding:2px 10px; display:inline-flex; gap:6px; align-items:center; }
+  .chip.bump { animation:bump .4s; }
+  @keyframes bump { 40%{transform:scale(1.45);} }
+  .msg.hot { box-shadow:0 0 0 2px #d29922, 0 0 22px rgba(210,153,34,.45); }
+  .float { position:fixed; pointer-events:none; font-size:42px; animation:rise 1.6s ease-out forwards; z-index:50; }
+  @keyframes rise { from{opacity:1;transform:translateY(0) scale(.6);} 30%{transform:translateY(-40px) scale(1.3);}
+                    to{opacity:0;transform:translateY(-220px) scale(1);} }
+  .empty { color:#6e7681; font-size:clamp(16px,1.8vw,24px); text-align:center; margin-top:40px; }
+  @media (prefers-reduced-motion: reduce) { .msg,.chip.bump,.float { animation:none !important; } }
+</style>
+</head>
+<body>
+<header>
+  <div class="qr" id="qr"></div>
+  <div>
+    <div class="question" id="question">…</div>
+    <div class="join">pick a side, post, react: <b id="joinurl">…</b></div>
+  </div>
+  <div class="right"><button class="clear" id="clear" style="display:none">Clear debate</button></div>
+</header>
+<div class="tug"><div class="p" id="tugp"></div><div class="a" id="tuga"></div></div>
+<main>
+  <section class="col pro"><div class="colhead"><span id="hpro">PRO</span><small id="npro">0 posts</small></div>
+    <div class="feed" id="fpro"><div class="empty">Waiting for the first PRO argument…</div></div></section>
+  <section class="col anti"><div class="colhead"><span id="hanti">ANTI</span><small id="nanti">0 posts</small></div>
+    <div class="feed" id="fanti"><div class="empty">Waiting for the first ANTI argument…</div></div></section>
+</main>
+
+<script src="https://cdn.jsdelivr.net/gh/davidshimjs/qrcodejs@04f46c6a/qrcode.min.js"></script>
+<script type="module">
+  import { db, pollId, pageURL, makeQR, qrSize, enlargeableQR, requireAuth, amHost } from "./app.js";
+  import { ref, onValue, onChildAdded, onChildRemoved, query, limitToLast, remove }
+    from "https://www.gstatic.com/firebasejs/10.12.2/firebase-database.js";
+
+  const EMO = ["👍", "🔥", "😂", "🤯"];        // reaction choice = 10 + index
+  const id = pollId();
+  const posts = {};        // key -> {side, el, counts}
+  const pending = {};      // reactions that arrived before their post
+  const score = [0, 0];    // posts + reactions per side
+  const nposts = [0, 0];
+
+  start();
+  async function start() {
+    if (!(await requireAuth())) return;
+    const url = pageURL("debate-play.html", id);
+    document.getElementById("joinurl").textContent = url.replace(/^https?:\/\//, "");
+    makeQR(document.getElementById("qr"), url, qrSize(0.2, 0.14));
+    enlargeableQR(document.getElementById("qr"), url);
+    if (await amHost()) {
+      const b = document.getElementById("clear"); b.style.display = "block";
+      b.onclick = async () => { if (confirm("Clear the whole debate?")) await remove(ref(db, "polls/" + id + "/responses")); };
+    }
+    onValue(ref(db, "polls/" + id + "/config"), (snap) => {
+      const cfg = snap.val() || {};
+      document.getElementById("question").textContent = cfg.question || "Poll not found";
+      const o = cfg.options || ["PRO", "ANTI"];
+      document.getElementById("hpro").textContent = o[0]; document.getElementById("hanti").textContent = o[1];
+    }, { onlyOnce: true });
+
+    const r = ref(db, "polls/" + id + "/responses");
+    onChildAdded(query(r, limitToLast(600)), (snap) => {
+      const m = snap.val(); if (!m || typeof m.choice !== "number") return;
+      if (m.choice < 10) addPost(snap.key, m);
+      else addReact(m.text, m.choice - 10, true);
+    });
+    onChildRemoved(r, () => location.reload());
+  }
+
+  function addPost(key, m) {
+    const side = m.choice === 0 ? 0 : 1;
+    const feed = document.getElementById(side ? "fanti" : "fpro");
+    const e = feed.querySelector(".empty"); if (e) e.remove();
+    const el = document.createElement("div"); el.className = "msg";
+    const t = document.createElement("div"); t.textContent = m.text;
+    const rx = document.createElement("div"); rx.className = "reacts";
+    el.append(t, rx); feed.prepend(el);
+    posts[key] = { side, el, rx, counts: [0, 0, 0, 0] };
+    nposts[side]++; score[side]++;
+    document.getElementById(side ? "nanti" : "npro").textContent = nposts[side] + (nposts[side] === 1 ? " post" : " posts");
+    (pending[key] || []).forEach(i => addReact(key, i, false));
+    delete pending[key];
+    tug();
+  }
+
+  function addReact(key, i, live) {
+    if (i < 0 || i >= EMO.length) return;
+    const p = posts[key];
+    if (!p) { (pending[key] = pending[key] || []).push(i); return; }
+    p.counts[i]++; score[p.side]++;
+    p.rx.innerHTML = "";
+    p.counts.forEach((c, j) => {
+      if (!c) return;
+      const s = document.createElement("span"); s.className = "chip" + (j === i && live ? " bump" : "");
+      s.textContent = EMO[j] + " " + c; p.rx.appendChild(s);
+    });
+    const total = p.counts.reduce((a, b) => a + b, 0);
+    p.el.classList.toggle("hot", total >= 5);
+    if (live) floatEmoji(p.el, EMO[i]);
+    tug();
+  }
+
+  function floatEmoji(el, e) {
+    const b = el.getBoundingClientRect();
+    const f = document.createElement("span"); f.className = "float"; f.textContent = e;
+    f.style.left = (b.left + 20 + Math.random() * Math.max(10, b.width - 60)) + "px";
+    f.style.top = (b.top + b.height / 2) + "px";
+    document.body.appendChild(f); setTimeout(() => f.remove(), 1700);
+  }
+
+  function tug() {
+    document.getElementById("tugp").style.flexGrow = 1 + score[0];
+    document.getElementById("tuga").style.flexGrow = 1 + score[1];
+  }
+</script>
+</body>
+</html>
