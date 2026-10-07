@@ -127,11 +127,13 @@
       }
     },
 
-    // Soil Map (repo em-soil-map). Soil samples from anonymous student sessions.
-    // No names, no uid. Location is rounded to 0.01 degree (~1 km) on the phone and
-    // stored as integers (lat100/lng100), so an exact home location can't be saved.
-    //   config          host only
-    //   samples/<id>    create-only by any signed-in device; only the host deletes.
+    // Soil Report (repo em-soil-map). One sample per student, from anonymous
+    // sessions. Full-precision location (Grey 2026-10-06: no privacy concern).
+    //   config                 host only
+    //   samples/<id>           create-only by any signed-in device; stores the
+    //                          creator's anonymous uid so only that phone can
+    //                          write samples/<id>/reflect (editable) and photos.
+    //   photos/<id>/<slot>     JPEG <= ~380 KB each, create-only, host-read only
     "soil": {
       "$sid": {
         ".write": "auth != null && root.child('admin/hostUid').val() === auth.uid",
@@ -140,21 +142,43 @@
           ".read": "auth != null",
           "$id": {
             ".write": "auth != null && !data.exists()",
-            ".validate": "newData.hasChildren(['label', 'lat100', 'lng100', 'color', 'texture', 'ts'])",
+            ".validate": "newData.hasChildren(['uid', 'group', 'label', 'lat', 'lng', 'ts'])",
+            "uid":      { ".validate": "newData.isString() && newData.val() === auth.uid" },
+            "group":    { ".validate": "newData.isNumber() && newData.val() % 1 === 0 && newData.val() >= 1 && newData.val() <= 6" },
             "label":    { ".validate": "newData.isString() && newData.val().length > 0 && newData.val().length <= 30" },
-            // location stored as INTEGER hundredths of a degree (3868 = 38.68), so
-            // nothing finer than ~1 km can be written
-            "lat100":   { ".validate": "newData.isNumber() && newData.val() % 1 === 0 && newData.val() > 3200 && newData.val() < 4210" },
-            "lng100":   { ".validate": "newData.isNumber() && newData.val() % 1 === 0 && newData.val() > -12450 && newData.val() < -11400" },
-            "place":    { ".validate": "newData.isString() && newData.val().matches(/^(yard|park|school|farm|creek|other)$/)" },
-            "color":    { ".validate": "newData.isString() && newData.val().matches(/^(black|darkbrown|brown|tan|reddish|yellowish|gray)$/)" },
-            "texture":  { ".validate": "newData.isString() && newData.val().matches(/^(sand|loamy sand|sandy loam|loam|silt loam|silt|sandy clay loam|clay loam|silty clay loam|sandy clay|silty clay|clay|unsure)$/)" },
+            "lat":      { ".validate": "newData.isNumber() && newData.val() >= -90 && newData.val() <= 90" },
+            "lng":      { ".validate": "newData.isNumber() && newData.val() >= -180 && newData.val() <= 180" },
+            "locSource": { ".validate": "newData.isString() && newData.val().matches(/^(gps|map|typed)$/)" },
+            "place": { ".validate": "newData.isString() && newData.val().matches(/^(garden|yard|park|school|farm|roadside|creek|potting|wild|other)$/)" },
+            "site":     { ".validate": "newData.isString() && newData.val().length <= 300" },
+            "color": { ".validate": "newData.isString() && newData.val().matches(/^(black|vdarkbrown|darkbrown|brown|lightbrown|pale|reddish|red|yellowish|gray|bluegray)$/)" },
+            "ball": { ".validate": "newData.isString() && newData.val().matches(/^(yes|no)$/)" },
+            "ribbon": { ".validate": "newData.isString() && newData.val().matches(/^(none|short|medium|long)$/)" },
+            "grit": { ".validate": "newData.isString() && newData.val().matches(/^(gritty|smooth|neither)$/)" },
+            "texture": { ".validate": "newData.isString() && newData.val().matches(/^(sand|loamy sand|sandy loam|loam|silt loam|silt|sandy clay loam|clay loam|silty clay loam|sandy clay|silty clay|clay|unsure)$/)" },
+            "structure": { ".validate": "newData.isString() && newData.val().matches(/^(granular|blocky|platy|single|massive)$/)" },
             "moisture": { ".validate": "newData.isString() && newData.val().matches(/^(dry|moist|wet)$/)" },
-            "roots":    { ".validate": "newData.isString() && newData.val().matches(/^(none|few|many)$/)" },
-            "critters": { ".validate": "newData.isNumber() && newData.val() >= 0 && newData.val() <= 99" },
-            "fizz":     { ".validate": "newData.isString() && newData.val().matches(/^(none|slight|strong)$/)" },
-            "ph":       { ".validate": "newData.isNumber() && newData.val() >= 1 && newData.val() <= 14" },
-            "hyp":      { ".validate": "newData.isString() && newData.val().length <= 200" },
+            "roots": { ".validate": "newData.isString() && newData.val().matches(/^(none|few|many)$/)" },
+            "organic": { ".validate": "newData.isString() && newData.val().matches(/^(none|some|lots)$/)" },
+            "rocks": { ".validate": "newData.isString() && newData.val().matches(/^(none|some|lots)$/)" },
+            "smell": { ".validate": "newData.isString() && newData.val().matches(/^(earthy|none|sour|musty)$/)" },
+            "critters": { ".validate": "newData.isNumber() && newData.val() % 1 === 0 && newData.val() >= 0 && newData.val() <= 999" },
+            "critterKinds": { ".validate": "newData.isString() && newData.val().length <= 100 && newData.val().matches(/^[a-z,]*$/)" },
+            "phV":   { ".validate": "newData.isNumber() && newData.val() >= 0 && newData.val() <= 14" },
+            "phKit": { ".validate": "newData.isString() && newData.val().matches(/^(strip|tube|dropper|other)$/)" },
+            "nL":   { ".validate": "newData.isString() && newData.val().matches(/^(vlow|low|med|high|vhigh)$/)" },
+            "nV":   { ".validate": "newData.isNumber() && newData.val() >= 0 && newData.val() <= 2000" },
+            "nKit": { ".validate": "newData.isString() && newData.val().matches(/^(strip|tube|dropper|other)$/)" },
+            "pL":   { ".validate": "newData.isString() && newData.val().matches(/^(vlow|low|med|high|vhigh)$/)" },
+            "pV":   { ".validate": "newData.isNumber() && newData.val() >= 0 && newData.val() <= 2000" },
+            "pKit": { ".validate": "newData.isString() && newData.val().matches(/^(strip|tube|dropper|other)$/)" },
+            "kL":   { ".validate": "newData.isString() && newData.val().matches(/^(vlow|low|med|high|vhigh)$/)" },
+            "kV":   { ".validate": "newData.isNumber() && newData.val() >= 0 && newData.val() <= 2000" },
+            "kKit": { ".validate": "newData.isString() && newData.val().matches(/^(strip|tube|dropper|other)$/)" },
+            "nh3L":   { ".validate": "newData.isString() && newData.val().matches(/^(vlow|low|med|high|vhigh)$/)" },
+            "nh3V":   { ".validate": "newData.isNumber() && newData.val() >= 0 && newData.val() <= 2000" },
+            "nh3Kit": { ".validate": "newData.isString() && newData.val().matches(/^(strip|tube|dropper|other)$/)" },
+            "photos":   { ".validate": "newData.isString() && newData.val().length <= 60 && newData.val().matches(/^[a-z0-9,]*$/)" },
             "dbMap":     { ".validate": "newData.isString() && newData.val().length <= 120" },
             "dbSeries":  { ".validate": "newData.isString() && newData.val().length <= 60" },
             "dbTexture": { ".validate": "newData.isString() && newData.val().length <= 60" },
@@ -164,7 +188,30 @@
             "dbOm":      { ".validate": "newData.isNumber()" },
             "dbClay":    { ".validate": "newData.isNumber()" },
             "ts":       { ".validate": "newData.val() === now" },
+            // Reflection answers, typed after the report card. Only the phone
+            // that created the sample may write (and re-write) them.
+            "reflect": {
+              ".write": "auth != null && data.parent().child('uid').val() === auth.uid",
+              ".validate": "newData.hasChild('ts')",
+              "r1": { ".validate": "newData.isString() && newData.val().length <= 600" },
+              "r2": { ".validate": "newData.isString() && newData.val().length <= 600" },
+              "r3": { ".validate": "newData.isString() && newData.val().length <= 600" },
+              "r4": { ".validate": "newData.isString() && newData.val().length <= 600" },
+              "ts": { ".validate": "newData.val() === now" },
+              "$other": { ".validate": false }
+            },
             "$other":   { ".validate": false }
+          }
+        },
+        "photos": {
+          ".read": "auth != null && root.child('admin/hostUid').val() === auth.uid",
+          "$id": {
+            "$slot": {
+              ".write": "auth != null && !data.exists() && root.child('soil').child($sid).child('samples').child($id).child('uid').val() === auth.uid",
+              ".validate": "$slot.matches(/^(soil|ph|n|p|k|nh3)$/) && newData.hasChildren(['data'])",
+              "data":   { ".validate": "newData.isString() && newData.val().beginsWith('data:image/jpeg;base64,') && newData.val().length <= 400000" },
+              "$other": { ".validate": false }
+            }
           }
         }
       }
