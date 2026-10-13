@@ -31,7 +31,7 @@
 
 <script type="module">
   import { db, pollId, requireAuth } from "./app.js";
-  import { ref, push, onValue, serverTimestamp }
+  import { ref, push, set, onValue, serverTimestamp }
     from "https://www.gstatic.com/firebasejs/10.12.2/firebase-database.js";
 
   const id = pollId();
@@ -40,12 +40,14 @@
   const ui = document.getElementById("ui");
   const ok = document.getElementById("ok");
 
+  let user = null;
   start();
 
   async function start() {
     // Anonymous sign-in. No prompt, no credential, nothing tied to a person —
     // it just lets the database rules tell one device from another.
-    if (!(await requireAuth())) return;
+    user = await requireAuth();
+    if (!user) return;
     if (!id) {
       document.body.innerHTML = '<div class="err">No poll specified. Scan the QR on the screen.</div>';
       return;
@@ -144,29 +146,41 @@
     num.addEventListener("keydown", e => { if (e.key === "Enter") btn.onclick(); });
   }
 
+  // One vote per device (Grey, 2026-10-13): the vote is written under this device's anonymous uid, and the
+  // rules are create-only, so a second write to the same key is refused by the database itself.
+  function voterKey() {
+    if (user && user.uid) return user.uid;
+    let k = localStorage.getItem("voter_key");
+    if (!k) { k = "g" + Math.random().toString(36).slice(2) + Date.now().toString(36); localStorage.setItem("voter_key", k); }
+    return k;
+  }
+
   function renderMC(cfg) {
     const opts = cfg.options || [];
     const votedKey = "voted_" + id;
     const already = localStorage.getItem(votedKey);
-    sub.textContent = already ? "" : "Tap your choice.";
+    sub.textContent = already !== null ? "" : "Tap your choice. One vote each.";
     ui.style.display = "flex"; ui.style.flexDirection = "column"; ui.style.gap = "12px";
     ui.innerHTML = "";
+    const lock = () => [...ui.children].forEach(c => { c.disabled = true; c.style.opacity = c.classList.contains("chosen") ? "1" : "0.45"; });
     opts.forEach((label, i) => {
       const b = document.createElement("button");
       b.className = "opt"; b.textContent = label;
       if (already === String(i)) b.classList.add("chosen");
       b.onclick = async () => {
-        [...ui.children].forEach(c => c.classList.remove("chosen"));
-        b.classList.add("chosen"); b.disabled = false;
+        lock();
+        b.classList.add("chosen"); b.style.opacity = "1";
         try {
-          await push(ref(db, "polls/" + id + "/responses"), { choice: i, ts: serverTimestamp() });
+          await set(ref(db, "polls/" + id + "/responses/" + voterKey()), { choice: i, ts: serverTimestamp() });
           localStorage.setItem(votedKey, String(i));
           ok.textContent = "✓ Voted: " + label;
-        } catch (e) { ok.textContent = "Couldn't send: " + e.message; }
+        } catch (e) {
+          ok.textContent = /permission/i.test(e.message) ? "You already voted on this poll." : "Couldn't send: " + e.message;
+        }
       };
       ui.appendChild(b);
     });
-    if (already !== null) ok.textContent = "✓ You voted: " + (opts[already] ?? "") + ". Tap again to change.";
+    if (already !== null) { lock(); ok.textContent = "✓ You voted: " + (opts[already] ?? "") + ". One vote each."; }
   }
 </script>
 </body>
