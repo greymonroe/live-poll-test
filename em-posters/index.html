@@ -1,0 +1,36 @@
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>Poster detectives</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif;background:#f6f2ec;color:#2a2622;padding:16px}
+h1{font-family:Georgia,serif;font-size:1.7rem;margin:.3em 0 .2em}
+.sub{color:#6a5e52;margin-bottom:14px}
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.tile{display:flex;flex-direction:column;padding:14px;border-radius:10px;text-decoration:none;color:#2a2622;min-height:118px;box-shadow:0 2px 6px rgba(0,0,0,.12)}
+.tile .n{font-family:Georgia,serif;font-size:2.2rem;font-weight:600;line-height:1}
+.tile .c{font-weight:700;margin-top:.15em}.tile .t{font-size:.9rem;margin-top:.3em;opacity:.8}
+#view{display:none}
+.bar{display:flex;align-items:center;gap:10px;padding:10px 12px;border-radius:10px;margin-bottom:10px}
+.bar .n{font-family:Georgia,serif;font-size:1.8rem;font-weight:600}
+.back{display:inline-block;margin-bottom:10px;color:#8a5e3c;text-decoration:none;font-weight:600}
+.q{background:#fff;border-radius:10px;padding:10px 14px;margin-bottom:10px;line-height:1.6}
+#img{width:100%;height:auto;display:block;border-radius:6px;box-shadow:0 2px 8px rgba(0,0,0,.15)}
+.tip{font-size:.85rem;color:#6a5e52;margin:6px 0 14px}
+.src{font-size:.75rem;color:#9a8d7e;margin-top:14px}
+</style></head><body>
+<div id="pick"><h1>Poster detectives</h1><p class="sub">Tap your group.</p><div class="grid"><a class="tile" href="#1" style="background:#f9dd6b"><span class="n">1</span><span class="c">Yellow</span><span class="t">Soil compaction</span></a><a class="tile" href="#2" style="background:#8fd18a"><span class="n">2</span><span class="c">Green</span><span class="t">Spotted lanternfly</span></a><a class="tile" href="#3" style="background:#7cc2e6"><span class="n">3</span><span class="c">Blue</span><span class="t">Tourism and beaches</span></a><a class="tile" href="#4" style="background:#f2a3a3"><span class="n">4</span><span class="c">Pink</span><span class="t">Water quality</span></a><a class="tile" href="#5" style="background:#f5b25f"><span class="n">5</span><span class="c">Orange</span><span class="t">Noise pollution</span></a><a class="tile" href="#6" style="background:#b9a3dd"><span class="n">6</span><span class="c">Purple</span><span class="t">Air pollution spike (PM2.5)</span></a><a class="tile" href="#7" style="background:#6fcfc0"><span class="n">7</span><span class="c">Teal</span><span class="t">Food systems education</span></a><a class="tile" href="#8" style="background:#c9c2b8"><span class="n">8</span><span class="c">Gray</span><span class="t">River pollution and health</span></a></div></div>
+<div id="view"><a class="back" href="#">&larr; All groups</a><div class="bar" id="bar"></div>
+<div class="q"><b>Find:</b> Why it matters · Question · How they did it · What they found</div>
+<a id="full" href="#" target="_blank" rel="noopener"><img id="img" alt=""></a>
+<p class="tip">Tap the poster to open it full size, then pinch to zoom.</p></div>
+<p class="src">Posters: 2026 GCSE EnvironMentors Virtual Research Showcase</p>
+<script>
+var G=[{"n": 1, "color": "Yellow", "hex": "#f9dd6b", "topic": "Soil compaction", "where": "Colusa, CA"}, {"n": 2, "color": "Green", "hex": "#8fd18a", "topic": "Spotted lanternfly", "where": "Washington, D.C."}, {"n": 3, "color": "Blue", "hex": "#7cc2e6", "topic": "Tourism and beaches", "where": "Saint Lucia"}, {"n": 4, "color": "Pink", "hex": "#f2a3a3", "topic": "Water quality", "where": "Dallas, TX"}, {"n": 5, "color": "Orange", "hex": "#f5b25f", "topic": "Noise pollution", "where": "New Jersey"}, {"n": 6, "color": "Purple", "hex": "#b9a3dd", "topic": "Air pollution spike (PM2.5)", "where": "Pennsylvania"}, {"n": 7, "color": "Teal", "hex": "#6fcfc0", "topic": "Food systems education", "where": "Colorado"}, {"n": 8, "color": "Gray", "hex": "#c9c2b8", "topic": "River pollution and health", "where": "Pennsylvania"}];
+function show(){var n=parseInt(location.hash.slice(1));var g=G.filter(function(x){return x.n===n})[0];
+document.getElementById('pick').style.display=g?'none':'block';document.getElementById('view').style.display=g?'block':'none';
+if(g){var b=document.getElementById('bar');b.style.background=g.hex;b.innerHTML='<span class="n">'+g.n+'</span><span><b>'+g.color+'</b> · '+g.topic+' ('+g.where+')</span>';
+document.getElementById('img').src='p'+g.n+'.jpg';document.getElementById('img').alt=g.topic;document.getElementById('full').href='p'+g.n+'.jpg';window.scrollTo(0,0)}}
+addEventListener('hashchange',show);show();
+</script></body></html>
