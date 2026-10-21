@@ -55,7 +55,7 @@
     if (!user || !id) return;
     const phone = pageURL("chat.html", id);
     const qrEl = document.getElementById("qr");
-    makeQR(qrEl, phone, qrSize(0.2, 0.14)); enlargeableQR(qrEl, phone);
+    makeQR(qrEl, phone, qrSize(0.28, 0.2)); enlargeableQR(qrEl, phone);
     document.getElementById("url").textContent = "scan, or go to " + phone.replace(/^https?:\/\//, "");
     onValue(ref(db, "polls/" + id + "/config"), (s) => {
       const c = s.val(); document.getElementById("question").textContent = c ? c.question : "Chat not found";
