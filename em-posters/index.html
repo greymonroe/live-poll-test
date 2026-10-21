@@ -31,6 +31,6 @@ var G=[{"n": 1, "color": "Yellow", "hex": "#f9dd6b", "topic": "Soil compaction",
 function show(){var n=parseInt(location.hash.slice(1));var g=G.filter(function(x){return x.n===n})[0];
 document.getElementById('pick').style.display=g?'none':'block';document.getElementById('view').style.display=g?'block':'none';
 if(g){var b=document.getElementById('bar');b.style.background=g.hex;b.innerHTML='<span class="n">'+g.n+'</span><span><b>'+g.color+'</b> · '+g.topic+' ('+g.where+')</span>';
-document.getElementById('img').src='p'+g.n+'.jpg';document.getElementById('img').alt=g.topic;document.getElementById('full').href='p'+g.n+'.jpg';window.scrollTo(0,0)}}
+document.getElementById('img').src='p'+g.n+'.png';document.getElementById('img').alt=g.topic;document.getElementById('full').href='p'+g.n+'.png';window.scrollTo(0,0)}}
 addEventListener('hashchange',show);show();
 </script></body></html>
