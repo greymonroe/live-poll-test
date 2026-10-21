@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+<title>Live chat</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+         background: #f6f2ec; color: #2a2622; padding: 16px 16px 150px; }
+  h1 { font-family: Georgia, serif; font-size: 22px; line-height: 1.25; margin: 4px 0 4px; }
+  p.sub { color: #6a5e52; font-size: 14px; margin-bottom: 14px; }
+  #feed { display: flex; flex-direction: column; gap: 10px; }
+  .msg { background: #fff; border-radius: 14px; padding: 12px 14px; box-shadow: 0 1px 4px rgba(0,0,0,.08); }
+  .msg.mine { border-left: 4px solid #b98a5e; }
+  .msg .t { font-size: 17px; line-height: 1.4; word-wrap: break-word; }
+  .rx { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+  .rx button { border: 1px solid #e4dbcf; background: #faf7f2; border-radius: 999px; padding: 5px 10px;
+               font-size: 16px; cursor: pointer; }
+  .rx button.on { background: #f3e3cf; border-color: #b98a5e; }
+  .rx button span { font-size: 13px; color: #6a5e52; margin-left: 3px; }
+  #compose { position: fixed; left: 0; right: 0; bottom: 0; background: #f6f2ec; padding: 10px 16px 16px;
+             border-top: 1px solid #e4dbcf; display: flex; gap: 8px; }
+  #compose textarea { flex: 1; min-height: 52px; max-height: 120px; resize: none; padding: 12px; font-size: 17px;
+                      border-radius: 12px; border: 1px solid #d8cdbf; background: #fff; color: #2a2622; font-family: inherit; }
+  #compose button { padding: 0 18px; font-size: 17px; font-weight: 600; border: none; border-radius: 12px;
+                    background: #8a5e3c; color: #fff; }
+  #compose button:disabled { opacity: .5; }
+  .empty { color: #9a8d7e; text-align: center; padding: 30px 0; }
+  .err { color: #b3261e; padding: 20px; }
+</style>
+</head>
+<body>
+  <h1 id="question">Loading…</h1>
+  <p class="sub">Post as many as you like (anonymous). Tap an emoji to react.</p>
+  <div id="feed"><div class="empty">No posts yet. Be the first!</div></div>
+  <div id="compose"><textarea id="text" placeholder="Type your idea…" maxlength="300"></textarea><button id="send">Post</button></div>
+
+<script type="module">
+  // Open chat: posts live in polls/<id>/responses (a normal text poll);
+  // emoji reactions live in the companion text poll polls/<id>-r/responses as
+  // "<postKey>|<emoji>". Append-only, so it works under the existing rules.
+  import { db, pollId, requireAuth } from "./app.js";
+  import { ref, push, onValue, serverTimestamp }
+    from "https://www.gstatic.com/firebasejs/10.12.2/firebase-database.js";
+
+  const EMOJI = ["❤️", "🔥", "😂", "🤯", "👍"];
+  const id = pollId();
+  const feed = document.getElementById("feed");
+  const text = document.getElementById("text"), btn = document.getElementById("send");
+  let posts = {}, counts = {};
+  const mineKey = "chat_mine_" + id, rxKey = "chat_rx_" + id;
+  const load = (k) => { try { return JSON.parse(localStorage.getItem(k) || "{}"); } catch (e) { return {}; } };
+  const save = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) {} };
+  const mine = load(mineKey), myRx = load(rxKey);
+
+  start();
+  async function start() {
+    const user = await requireAuth();
+    if (!user) return;
+    if (!id) { document.body.innerHTML = '<div class="err">No chat specified. Scan the QR on the screen.</div>'; return; }
+    onValue(ref(db, "polls/" + id + "/config"), (s) => {
+      const c = s.val();
+      if (!c) { document.body.innerHTML = '<div class="err">Chat not found.</div>'; return; }
+      document.getElementById("question").textContent = c.question;
+    }, { onlyOnce: true });
+    onValue(ref(db, "polls/" + id + "/responses"), (s) => { posts = s.val() || {}; render(); });
+    onValue(ref(db, "polls/" + id + "-r/responses"), (s) => {
+      counts = {};
+      Object.values(s.val() || {}).forEach((r) => {
+        const [k, e] = String(r.text || "").split("|");
+        if (!k || !EMOJI.includes(e)) return;
+        (counts[k] = counts[k] || {})[e] = (counts[k][e] || 0) + 1;
+      });
+      render();
+    });
+  }
+
+  function esc(s) { return s.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c])); }
+
+  function render() {
+    const list = Object.entries(posts).sort((a, b) => (b[1].ts || 0) - (a[1].ts || 0));
+    if (!list.length) { feed.innerHTML = '<div class="empty">No posts yet. Be the first!</div>'; return; }
+    feed.innerHTML = list.map(([k, p]) => {
+      const c = counts[k] || {};
+      const rx = EMOJI.map((e) => {
+        const on = myRx[k + e] ? " on" : "";
+        return `<button class="${on}" data-k="${k}" data-e="${e}">${e}${c[e] ? `<span>${c[e]}</span>` : ""}</button>`;
+      }).join("");
+      return `<div class="msg${mine[k] ? " mine" : ""}"><div class="t">${esc(p.text || "")}</div><div class="rx">${rx}</div></div>`;
+    }).join("");
+  }
+
+  feed.addEventListener("click", async (ev) => {
+    const b = ev.target.closest("button[data-k]"); if (!b) return;
+    const k = b.dataset.k, e = b.dataset.e;
+    if (myRx[k + e]) return;               // one of each emoji per post per device
+    myRx[k + e] = 1; save(rxKey, myRx); render();
+    try { await push(ref(db, "polls/" + id + "-r/responses"), { text: k + "|" + e, ts: serverTimestamp() }); }
+    catch (err) { delete myRx[k + e]; save(rxKey, myRx); render(); alert("Couldn't react: " + err.message); }
+  });
+
+  async function send() {
+    const v = text.value.trim(); if (!v) return;
+    btn.disabled = true;
+    try {
+      const r = await push(ref(db, "polls/" + id + "/responses"), { text: v.slice(0, 300), ts: serverTimestamp() });
+      mine[r.key] = 1; save(mineKey, mine); text.value = ""; window.scrollTo({ top: 0, behavior: "smooth" });
+    } catch (e) { alert("Couldn't post: " + e.message); }
+    finally { btn.disabled = false; }
+  }
+  btn.onclick = send;
+  text.addEventListener("keydown", (e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); } });
+</script>
+</body>
+</html>

@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Live chat — screen</title>
+<script src="https://cdn.jsdelivr.net/npm/qrcodejs@1.0.0/qrcode.min.js"></script>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { height: 100%; overflow: hidden; }
+  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #f6f2ec;
+         color: #2a2622; display: flex; flex-direction: column; }
+  header { display: flex; align-items: center; gap: 2.2vw; padding: 2.2vh 3vw; border-bottom: 1px solid #e4dbcf; }
+  #qr { background: #fff; padding: 10px; border-radius: 10px; flex: 0 0 auto; }
+  h1 { font-family: Georgia, serif; font-weight: 600; font-size: clamp(1.6rem, 3.4vw, 3.8rem); line-height: 1.1; }
+  .url { color: #6a5e52; font-size: clamp(.9rem, 1.3vw, 1.5rem); margin-top: .4em; }
+  .count { margin-left: auto; color: #9a8d7e; font-size: clamp(1rem, 1.5vw, 1.7rem); white-space: nowrap; }
+  #wall { flex: 1; overflow: hidden; padding: 2.4vh 3vw; columns: 3 22vw; column-gap: 1.6vw; }
+  .card { break-inside: avoid; background: #fff; border-radius: 14px; padding: 1.4vh 1.2vw; margin-bottom: 1.6vh;
+          box-shadow: 0 2px 8px rgba(0,0,0,.08); animation: pop .45s ease-out; }
+  .card .t { font-size: clamp(1.1rem, 1.9vw, 2.2rem); line-height: 1.3; word-wrap: break-word; }
+  .card .rx { margin-top: .5em; font-size: clamp(1rem, 1.5vw, 1.8rem); display: flex; gap: .8em; flex-wrap: wrap; }
+  .card .rx b { font-weight: 600; color: #6a5e52; font-size: .8em; margin-left: .15em; }
+  .card:nth-child(5n+1) { border-top: 5px solid #f9dd6b; } .card:nth-child(5n+2) { border-top: 5px solid #8fd18a; }
+  .card:nth-child(5n+3) { border-top: 5px solid #7cc2e6; } .card:nth-child(5n+4) { border-top: 5px solid #f2a3a3; }
+  .card:nth-child(5n+5) { border-top: 5px solid #b9a3dd; }
+  .bump { animation: bump .4s ease-out; }
+  @keyframes pop { from { transform: scale(.85); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+  @keyframes bump { 50% { transform: scale(1.06); } }
+  .empty { color: #9a8d7e; font-size: clamp(1.2rem, 2vw, 2.2rem); }
+  .hostbar { position: fixed; right: 10px; bottom: 8px; font-size: 12px; opacity: .5; }
+  .hostbar button { font-size: 12px; }
+</style>
+</head>
+<body>
+  <header>
+    <div id="qr"></div>
+    <div><h1 id="question">Loading…</h1><div class="url" id="url"></div></div>
+    <div class="count" id="count"></div>
+  </header>
+  <div id="wall"><div class="empty">Scan to post. Ideas show up here.</div></div>
+
+<script type="module">
+  import { db, pollId, requireAuth, pageURL, makeQR, qrSize, enlargeableQR } from "./app.js";
+  import { ref, onValue } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-database.js";
+
+  const EMOJI = ["❤️", "🔥", "😂", "🤯", "👍"];
+  const id = pollId();
+  const wall = document.getElementById("wall");
+  let posts = {}, counts = {}, prevTotals = {};
+
+  start();
+  async function start() {
+    const user = await requireAuth();
+    if (!user || !id) return;
+    const phone = pageURL("chat.html", id);
+    const qrEl = document.getElementById("qr");
+    makeQR(qrEl, phone, qrSize(0.2, 0.14)); enlargeableQR(qrEl, phone);
+    document.getElementById("url").textContent = "scan, or go to " + phone.replace(/^https?:\/\//, "");
+    onValue(ref(db, "polls/" + id + "/config"), (s) => {
+      const c = s.val(); document.getElementById("question").textContent = c ? c.question : "Chat not found";
+    });
+    onValue(ref(db, "polls/" + id + "/responses"), (s) => { posts = s.val() || {}; render(); });
+    onValue(ref(db, "polls/" + id + "-r/responses"), (s) => {
+      counts = {};
+      Object.values(s.val() || {}).forEach((r) => {
+        const [k, e] = String(r.text || "").split("|");
+        if (!k || !EMOJI.includes(e)) return;
+        (counts[k] = counts[k] || {})[e] = (counts[k][e] || 0) + 1;
+      });
+      render();
+    });
+  }
+
+  function esc(s) { return s.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c])); }
+
+  function render() {
+    const list = Object.entries(posts).sort((a, b) => (b[1].ts || 0) - (a[1].ts || 0));
+    document.getElementById("count").textContent = list.length ? list.length + (list.length === 1 ? " post" : " posts") : "";
+    if (!list.length) { wall.innerHTML = '<div class="empty">Scan to post. Ideas show up here.</div>'; return; }
+    const seen = new Set([...wall.querySelectorAll(".card")].map((el) => el.dataset.k));
+    wall.innerHTML = list.map(([k, p]) => {
+      const c = counts[k] || {};
+      const total = EMOJI.reduce((n, e) => n + (c[e] || 0), 0);
+      const rx = EMOJI.filter((e) => c[e]).map((e) => `<span>${e}<b>${c[e]}</b></span>`).join("");
+      const bump = seen.has(k) && total > (prevTotals[k] || 0) ? " bump" : "";
+      prevTotals[k] = total;
+      const style = seen.has(k) ? ' style="animation:none"' : "";
+      return `<div class="card${bump}" data-k="${k}"${bump ? "" : style}><div class="t">${esc(p.text || "")}</div>${rx ? `<div class="rx">${rx}</div>` : ""}</div>`;
+    }).join("");
+  }
+</script>
+</body>
+</html>
