@@ -316,6 +316,51 @@
           }
         }
       }
+    },
+
+    // Trial & Release (repo seed-wars, trial.html): field-trial / market game for PLS 152.
+    //   state            host only: {phase, round, rkey, endsAt}
+    //   teams/<g>        create-only by a signed-in phone; stores that phone's anonymous uid
+    //   plots/<r>/<g>    create-only, by the owning phone, while round r's trial season is open
+    //   release/<r>/<g>  the owning phone, while round r's trial season is open (can switch)
+    "trials": {
+      "$gid": {
+        ".read": "auth != null",
+        ".write": "auth != null && root.child('admin/hostUid').val() === auth.uid",
+        "teams": {
+          "$g": {
+            ".write": "auth != null && !data.exists()",
+            ".validate": "$g.matches(/^([1-9]|1[0-9]|20)$/) && newData.hasChildren(['name', 'uid', 'ts'])",
+            "name":   { ".validate": "newData.isString() && newData.val().length > 0 && newData.val().length <= 24" },
+            "uid":    { ".validate": "newData.isString() && newData.val() === auth.uid" },
+            "ts":     { ".validate": "newData.val() === now" },
+            "$other": { ".validate": false }
+          }
+        },
+        "plots": {
+          "$r": {
+            "$g": {
+              ".write": "auth != null && !data.exists() && root.child('trials/' + $gid + '/teams/' + $g + '/uid').val() === auth.uid && root.child('trials/' + $gid + '/state/phase').val() === 'trial' && root.child('trials/' + $gid + '/state/rkey').val() === $r",
+              ".validate": "newData.hasChildren(['alloc', 'ts'])",
+              "alloc":  { ".validate": "newData.isString() && newData.val().matches(/^[0-9]{24}$/)" },
+              "ts":     { ".validate": "newData.val() === now" },
+              "$other": { ".validate": false }
+            }
+          }
+        },
+        "release": {
+          "$r": {
+            "$g": {
+              ".write": "auth != null && root.child('trials/' + $gid + '/teams/' + $g + '/uid').val() === auth.uid && root.child('trials/' + $gid + '/state/phase').val() === 'trial' && root.child('trials/' + $gid + '/state/rkey').val() === $r",
+              ".validate": "newData.hasChildren(['h', 'name', 'ts'])",
+              "h":      { ".validate": "newData.isNumber() && newData.val() >= 0 && newData.val() <= 5 && newData.val() % 1 === 0" },
+              "name":   { ".validate": "newData.isString() && newData.val().length > 0 && newData.val().length <= 24" },
+              "ts":     { ".validate": "newData.val() === now" },
+              "$other": { ".validate": false }
+            }
+          }
+        }
+      }
     }
   }
 }
