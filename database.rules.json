@@ -274,6 +274,48 @@
           }
         }
       }
+    },
+
+    // Seed Wars (repo seed-wars): live breeding / market-share game for PLS 152.
+    //   state               host only: {phase, round, rkey, endsAt}
+    //   teams/<g>           create-only by a signed-in phone; stores that phone's anonymous uid
+    //   moves/<r>/<g>       only the phone that owns team g, only while round r is the open breeding season
+    // The host (Reset) can delete the whole game; phones can't delete anything.
+    "seedwars": {
+      "$gid": {
+        ".read": "auth != null",
+        ".write": "auth != null && root.child('admin/hostUid').val() === auth.uid",
+        "teams": {
+          "$g": {
+            ".write": "auth != null && !data.exists()",
+            ".validate": "$g.matches(/^([1-9]|1[0-9]|20)$/) && newData.hasChildren(['name', 'uid', 'ts'])",
+            "name":   { ".validate": "newData.isString() && newData.val().length > 0 && newData.val().length <= 24" },
+            "uid":    { ".validate": "newData.isString() && newData.val() === auth.uid" },
+            "ts":     { ".validate": "newData.val() === now" },
+            "$other": { ".validate": false }
+          }
+        },
+        "moves": {
+          "$r": {
+            "$g": {
+              ".write": "auth != null && root.child('seedwars/' + $gid + '/teams/' + $g + '/uid').val() === auth.uid && root.child('seedwars/' + $gid + '/state/phase').val() === 'breed' && root.child('seedwars/' + $gid + '/state/rkey').val() === $r",
+              ".validate": "newData.hasChildren(['release', 'keep', 'ts'])",
+              "release": {
+                ".validate": "newData.hasChildren(['name', 'geno'])",
+                "name":   { ".validate": "newData.isString() && newData.val().length > 0 && newData.val().length <= 24" },
+                "geno":   { ".validate": "newData.isString() && newData.val().matches(/^[01]{18}$/)" },
+                "$other": { ".validate": false }
+              },
+              "keep": {
+                "$i": { ".validate": "$i.matches(/^[01]$/) && newData.isString() && newData.val().matches(/^[01]{18}$/)" }
+              },
+              "landrace": { ".validate": "newData.isBoolean()" },
+              "ts":       { ".validate": "newData.val() === now" },
+              "$other":   { ".validate": false }
+            }
+          }
+        }
+      }
     }
   }
 }
