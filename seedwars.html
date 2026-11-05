@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+<title>Seed Wars</title>
+<style>
+  * { box-sizing: border-box; }
+  body { margin: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; color: #222; background: #fff; }
+  .wrap { max-width: 460px; margin: 0 auto; padding: 16px; }
+  h1 { font-size: 26px; margin: 4px 0 2px; }
+  .sub { color: #666; font-size: 15px; margin: 0 0 12px; }
+  .card { border-radius: 14px; padding: 12px 14px; margin: 10px 0; background: #f6f7f8; }
+  .me { display: flex; align-items: center; gap: 10px; font-weight: 700; font-size: 18px; }
+  .sw { width: 22px; height: 22px; border-radius: 6px; display: inline-block; }
+  .grid { display: grid; grid-template-columns: repeat(6, 1fr); gap: 8px; }
+  .grid button { padding: 14px 0; font-size: 18px; font-weight: 700; border: 0; border-radius: 10px; color: #fff; }
+  button.big { width: 100%; font-size: 19px; font-weight: 700; padding: 15px; border: 0; border-radius: 12px; background: #00897B; color: #fff; margin-top: 10px; }
+  button.big:disabled { background: #cfd8dc; }
+  input[type=range] { width: 100%; margin: 6px 0; accent-color: #00897B; }
+  .target { font-size: 34px; font-weight: 800; text-align: center; }
+  .hint { color: #666; font-size: 14px; line-height: 1.4; }
+  .ok { color: #00897B; font-weight: 700; text-align: center; min-height: 22px; margin-top: 8px; }
+  .err { color: #c62828; }
+  .stat { display: flex; justify-content: space-between; font-size: 17px; margin: 4px 0; }
+  .stat b { font-size: 20px; }
+  svg { width: 100%; height: auto; display: block; }
+</style>
+</head>
+<body><div class="wrap">
+  <h1>🌽 Seed Wars</h1>
+  <p class="sub">Your group is a seed company. Breed corn for a warming world and win the farmers.</p>
+  <div id="ui">Connecting…</div>
+</div>
+<script type="module">
+  import { db, pollId, requireAuth } from "./app.js";
+  import { ref, push, onValue, serverTimestamp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-database.js";
+  import { parse, nowClimate, plantClimate, yieldAt, FARMERS, COLORS, ROUNDS, WARMING } from "./seedwars-logic.js";
+
+  const id = pollId(), ui = document.getElementById("ui");
+  const KEY = "seedwars:" + id;
+  let me = null;
+  try { me = JSON.parse(localStorage.getItem(KEY)); } catch (e) {}
+  if (!me || !me.tok) me = { tok: Math.random().toString(36).slice(2, 10), g: null };
+  const save = () => { try { localStorage.setItem(KEY, JSON.stringify(me)); } catch (e) {} };
+  let G = null, target = null, sentFor = null, drawnKey = "";
+
+  const send = (text) => push(ref(db, "polls/" + id + "/responses"), { text, ts: serverTimestamp() });
+
+  start();
+  async function start() {
+    if (!id) { ui.innerHTML = '<p class="err">No game specified. Scan the QR on the screen.</p>'; return; }
+    const user = await requireAuth(); if (!user) return;
+    onValue(ref(db, "polls/" + id + "/responses"), (snap) => { G = parse(snap.val()); render(); });
+  }
+
+  function render() {
+    const { state, owner } = G;
+    if (me.g && owner[me.g] && owner[me.g] !== me.tok) { me.g = null; save(); }       // someone else holds it
+    if (me.g && !owner[me.g]) { me.g = null; save(); }                                 // game was reset
+    if (!me.g) return joinView();
+    const key = [state.phase, state.round, me.g].join(":");
+    if (state.phase === "open") { if (drawnKey !== key) { drawnKey = key; target = null; breedView(); } else updateCount(); return; }
+    drawnKey = key;
+    if (state.phase === "reveal") return revealView();
+    ui.innerHTML = head() + '<div class="card hint">You\'re in! Watch the big screen. Round 1 starts soon.</div>';
+  }
+
+  function head() {
+    return `<div class="card me"><span class="sw" style="background:${COLORS[me.g - 1]}"></span>Company ${me.g}` +
+      `<span style="margin-left:auto;color:#666;font-weight:400">$${(G.total[me.g] || 0).toFixed(1)}M</span></div>`;
+  }
+
+  function joinView() {
+    const taken = G.owner;
+    ui.innerHTML = '<div class="card"><b>Which final project group are you?</b><div class="hint">One phone per group.</div></div>' +
+      '<div class="grid">' + Array.from({ length: 17 }, (_, i) => i + 1).map((g) =>
+        `<button data-g="${g}" style="background:${COLORS[g - 1]};opacity:${taken[g] ? 0.25 : 1}" ${taken[g] ? "disabled" : ""}>${g}</button>`).join("") +
+      '</div><div class="ok" id="ok"></div>';
+    ui.querySelectorAll("button[data-g]").forEach((b) => b.onclick = async () => {
+      me.g = +b.dataset.g; save(); await send(`J|${me.g}|${me.tok}`);
+    });
+  }
+
+  // climate strip: county temps at planting, farmers, and your variety's yield in each county
+  function strip(r, t) {
+    const now = nowClimate(r), plant = plantClimate(r), W = 420, cw = W / 12, H = 210;
+    let s = `<svg viewBox="0 0 ${W} ${H}">`;
+    s += `<text x="2" y="12" font-size="11" fill="#1F78B4">◀ cool north</text><text x="${W - 2}" y="12" font-size="11" fill="#E65100" text-anchor="end">hot south ▶</text>`;
+    plant.forEach((T, c) => {
+      const x = c * cw, heat = (T - 20) / 16;
+      s += `<rect x="${x + 1}" y="18" width="${cw - 2}" height="26" rx="5" fill="hsl(${200 - 190 * Math.min(1, heat)},75%,${62 - 10 * heat}%)"/>`;
+      s += `<text x="${x + cw / 2}" y="36" font-size="11" text-anchor="middle" fill="#fff" font-weight="700">${T}°</text>`;
+      for (let k = 0; k < FARMERS[c]; k++) s += `<circle cx="${x + 8 + (k % 3) * 9}" cy="${54 + Math.floor(k / 3) * 9}" r="3.2" fill="#8d6e63"/>`;
+      if (t != null) {
+        const y = yieldAt(t, T), h = y / 12 * 70;
+        s += `<rect x="${x + 4}" y="${H - 12 - h}" width="${cw - 8}" height="${h}" rx="3" fill="${COLORS[me.g - 1]}"/>`;
+      }
+    });
+    s += `<text x="2" y="${H - 1}" font-size="10" fill="#666">bars = your yield in each county next year · dots = farmers</text></svg>`;
+    return s;
+  }
+
+  function breedView() {
+    const r = G.state.round, now = nowClimate(r);
+    if (target == null) target = (G.moves[r] && G.moves[r][me.g]) ?? 25.5;
+    ui.innerHTML = head() +
+      `<div class="card"><b>Round ${r} of ${ROUNDS}</b><div class="hint">This summer the counties run ${now[0]}° to ${now[11]}°C. ` +
+      `Breeding takes a year: your seed is planted <b>next summer</b>, which will be <b>${WARMING}°C warmer</b> (shown below).</div></div>` +
+      `<div class="hint">Breed your variety for a summer high of</div><div class="target"><span id="tv"></span>°C</div>` +
+      `<input type="range" id="sl" min="18" max="38" step="0.5" value="${target}">` +
+      `<div id="strip"></div>` +
+      `<button class="big" id="go">Release this variety</button><div class="ok" id="ok"></div>` +
+      `<div class="hint">Farmers in each county buy the seed that yields most there. If several companies target the same counties, they split the farmers.</div>`;
+    const sl = document.getElementById("sl");
+    const draw = () => { target = +sl.value; document.getElementById("tv").textContent = target; document.getElementById("strip").innerHTML = strip(r, target); };
+    sl.oninput = draw; draw(); updateCount();
+    document.getElementById("go").onclick = async () => {
+      await send(`M|${r}|${me.g}|${me.tok}|${target}`); sentFor = r + ":" + target; updateCount();
+    };
+  }
+
+  function updateCount() {
+    const ok = document.getElementById("ok"); if (!ok) return;
+    const r = G.state.round, mine = G.moves[r] && G.moves[r][me.g];
+    ok.textContent = mine != null ? `Released: bred for ${mine}°C. You can change it until the round closes.` : "";
+  }
+
+  function revealView() {
+    const r = G.state.round, res = G.results[r];
+    const ranks = Object.entries(G.total).sort((a, b) => b[1] - a[1]).map((x) => +x[0]);
+    const mine = G.moves[r] && G.moves[r][me.g];
+    let body = '<div class="card hint">You didn\'t release a variety this round.</div>';
+    if (res && mine != null) {
+      const rev = res.revenue[me.g], farmers = rev;   // $1M per farmer
+      const best = res.counties.map((c, i) => [i, c.shares[me.g]]).sort((a, b) => b[1] - a[1])[0];
+      body = `<div class="card"><div class="stat">Bred for<b>${mine}°C</b></div>` +
+        `<div class="stat">Farmers won<b>${farmers.toFixed(1)} of 84</b></div>` +
+        `<div class="stat">Sales this year<b>$${rev.toFixed(1)}M</b></div>` +
+        `<div class="stat">Best county<b>${res.counties[best[0]].T}°C (${Math.round(best[1] * 100)}%)</b></div></div>`;
+    }
+    ui.innerHTML = head() + `<div class="card"><b>Round ${r} harvest</b></div>` + body +
+      `<div class="card stat">Rank<b>${ranks.indexOf(me.g) + 1} of ${ranks.length}</b></div>` +
+      `<div class="hint">${r < ROUNDS ? "Look at the big screen: who won which counties? Next round opens soon." : "Final results on the big screen!"}</div>`;
+  }
+</script>
+</body></html>

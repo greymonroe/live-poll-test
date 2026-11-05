@@ -1,0 +1,123 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Seed Wars (host)</title>
+<style>
+  * { box-sizing: border-box; }
+  body { margin: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; color: #222; background: #fff; }
+  .wrap { padding: 22px 36px; }
+  .top { display: flex; align-items: center; gap: 20px; }
+  h1 { font-size: 40px; margin: 0; }
+  .phase { font-size: 22px; color: #555; }
+  .btns { margin-left: auto; display: flex; gap: 10px; }
+  button { font-size: 18px; font-weight: 700; padding: 12px 18px; border: 0; border-radius: 10px; background: #00897B; color: #fff; cursor: pointer; }
+  button.ghost { background: #eceff1; color: #555; }
+  .main { display: grid; grid-template-columns: 1fr 380px; gap: 30px; margin-top: 14px; }
+  .lb .row { display: flex; align-items: center; gap: 10px; margin: 5px 0; font-size: 19px; }
+  .lb .sw { width: 22px; height: 22px; border-radius: 6px; }
+  .lb .bar { height: 20px; border-radius: 5px; }
+  .chips { display: flex; flex-wrap: wrap; gap: 10px; }
+  .chip { color: #fff; font-weight: 800; font-size: 26px; width: 64px; height: 64px; border-radius: 14px; display: flex; align-items: center; justify-content: center; }
+  .qrbox { display: flex; gap: 28px; align-items: center; }
+  .qr { background: #fff; padding: 10px; border: 1px solid #ddd; border-radius: 12px; line-height: 0; }
+  .big { font-size: 26px; line-height: 1.4; }
+  .muted { color: #777; font-size: 16px; }
+  svg { width: 100%; height: auto; display: block; }
+</style>
+</head>
+<body><div class="wrap">
+  <div class="top"><h1>🌽 Seed Wars</h1><div class="phase" id="phase"></div>
+    <div class="btns"><button id="next"></button><button class="ghost" id="reset">Reset</button></div></div>
+  <div id="ui"></div>
+</div>
+<script src="https://cdn.jsdelivr.net/gh/davidshimjs/qrcodejs@04f46c6a/qrcode.min.js"></script>
+<script type="module">
+  import { db, pollId, pageURL, makeQR, enlargeableQR, requireAuth } from "./app.js";
+  import { ref, push, onValue, serverTimestamp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-database.js";
+  import { parse, nowClimate, plantClimate, FARMERS, COLORS, ROUNDS, WARMING } from "./seedwars-logic.js";
+
+  const id = pollId(), ui = document.getElementById("ui");
+  const send = (text) => push(ref(db, "polls/" + id + "/responses"), { text, ts: serverTimestamp() });
+  let G = null;
+  const phoneURL = pageURL("seedwars.html", id);
+
+  start();
+  async function start() {
+    if (!id) { ui.textContent = "Add ?poll=<game id> to the URL."; return; }
+    const user = await requireAuth(); if (!user) return;
+    onValue(ref(db, "polls/" + id + "/responses"), (snap) => { G = parse(snap.val()); render(); });
+    document.getElementById("reset").onclick = () => { if (confirm("Reset the game? Everyone rejoins.")) send("H|reset"); };
+    document.getElementById("next").onclick = () => {
+      const { phase, round } = G.state;
+      if (phase === "lobby") send("H|open|1");
+      else if (phase === "open") send(`H|reveal|${round}`);
+      else if (round < ROUNDS) send(`H|open|${round + 1}`);
+    };
+  }
+
+  function render() {
+    const { state, owner, moves } = G, n = Object.keys(owner).length, nb = state.round ? Object.keys(moves[state.round] || {}).length : 0;
+    const next = document.getElementById("next"), ph = document.getElementById("phase");
+    next.style.display = "";
+    if (state.phase === "lobby") { ph.textContent = `${n} companies joined`; next.textContent = "Start round 1"; return lobby(); }
+    if (state.phase === "open") { ph.textContent = `Round ${state.round} of ${ROUNDS}: breeding… ${nb} of ${n} released`; next.textContent = "Harvest!"; return openView(); }
+    ph.textContent = `Round ${state.round} of ${ROUNDS}: harvest`;
+    if (state.round < ROUNDS) next.textContent = `Start round ${state.round + 1}`; else next.style.display = "none";
+    revealView();
+  }
+
+  function lobby() {
+    ui.innerHTML = `<div class="qrbox" style="margin-top:20px"><div class="qr" id="qr"></div><div>` +
+      `<div class="big"><b>Your group is a seed company.</b><br>One phone per group: scan, tap your group number.</div>` +
+      `<div class="muted" style="margin:8px 0 18px">${phoneURL.replace(/^https?:\/\//, "")}</div>` +
+      `<div class="chips">${Object.keys(G.owner).map((g) => `<div class="chip" style="background:${COLORS[g - 1]}">${g}</div>`).join("")}</div></div></div>`;
+    const s = Math.round(Math.min(innerHeight * 0.55, innerWidth * 0.3));
+    makeQR(document.getElementById("qr"), phoneURL, s); enlargeableQR(document.getElementById("qr"), phoneURL);
+  }
+
+  // county strip: stacked market shares (company colours; grey = old public variety)
+  function strip(r, res) {
+    const W = 1000, cw = W / 12, H = 470, top = 70, base = 400, unit = (base - top) / 11;
+    const now = nowClimate(r), plant = plantClimate(r);
+    let s = `<svg viewBox="0 0 ${W} ${H}">`;
+    s += `<text x="4" y="20" font-size="20" fill="#1F78B4">◀ cool north</text><text x="${W - 4}" y="20" font-size="20" fill="#E65100" text-anchor="end">hot south ▶</text>`;
+    plant.forEach((T, c) => {
+      const x = c * cw, heat = (T - 20) / 16;
+      s += `<rect x="${x + 3}" y="30" width="${cw - 6}" height="32" rx="7" fill="hsl(${200 - 190 * Math.min(1, heat)},75%,${62 - 10 * heat}%)"/>`;
+      s += `<text x="${x + cw / 2}" y="53" font-size="19" font-weight="800" text-anchor="middle" fill="#fff">${res ? T : now[c]}°</text>`;
+      const h = FARMERS[c] * unit;
+      if (!res) { s += `<rect x="${x + 10}" y="${base - h}" width="${cw - 20}" height="${h}" rx="4" fill="#d7ccc8"/>`; }
+      else {
+        let y = base; const cc = res.counties[c];
+        const parts = Object.entries(cc.shares).filter(([, v]) => v > 0.01).sort((a, b) => b[1] - a[1]);
+        parts.forEach(([g, v]) => { const hh = v * h; y -= hh; s += `<rect x="${x + 10}" y="${y}" width="${cw - 20}" height="${hh}" fill="${COLORS[g - 1]}"/>`; if (hh > 22) s += `<text x="${x + cw / 2}" y="${y + hh / 2 + 7}" font-size="18" font-weight="800" fill="#fff" text-anchor="middle">${g}</text>`; });
+        if (cc.publicShare > 0.01) { const hh = cc.publicShare * h; y -= hh; s += `<rect x="${x + 10}" y="${y}" width="${cw - 20}" height="${hh}" fill="#bdbdbd"/>`; }
+      }
+      s += `<text x="${x + cw / 2}" y="${base + 24}" font-size="17" fill="#555" text-anchor="middle">${FARMERS[c]} farmers</text>`;
+    });
+    s += `<text x="4" y="${H - 8}" font-size="17" fill="#777">${res ? `Summer at planting (${WARMING}°C warmer than when you bred). Bar = farmers; colours = who won them; grey = old public variety.` : `This summer's climate. Next summer will be ${WARMING}°C warmer.`}</text></svg>`;
+    return s;
+  }
+
+  function board() {
+    const rows = Object.entries(G.total).sort((a, b) => b[1] - a[1]);
+    const mx = Math.max(1, ...rows.map((x) => x[1]));
+    return `<div class="lb"><div class="muted" style="margin-bottom:6px">Total seed sales ($M)</div>` + rows.map(([g, v], k) =>
+      `<div class="row"><span style="width:26px">${k === 0 && v > 0 ? "🏆" : k + 1}</span><span class="sw" style="background:${COLORS[g - 1]}"></span>` +
+      `<span style="width:30px;font-weight:700">${g}</span><span class="bar" style="width:${Math.round(v / mx * 200)}px;background:${COLORS[g - 1]}"></span><b>${v.toFixed(1)}</b></div>`).join("") + `</div>`;
+  }
+
+  function openView() {
+    const r = G.state.round;
+    ui.innerHTML = `<div class="main"><div>${strip(r, null)}<div class="big" style="margin-top:6px">Breed for next summer. ` +
+      `<span class="muted">Released: ${Object.keys(G.moves[r] || {}).sort((a, b) => a - b).map((g) => `<b style="color:${COLORS[g - 1]}">${g}</b>`).join(" ") || "none yet"}</span></div></div>${board()}</div>`;
+  }
+
+  function revealView() {
+    const r = G.state.round, res = G.results[r];
+    const picks = Object.entries(G.moves[r] || {}).sort((a, b) => a[1] - b[1]).map(([g, t]) => `<b style="color:${COLORS[g - 1]}">${g}</b>:${t}°`).join(" · ");
+    ui.innerHTML = `<div class="main"><div>${strip(r, res)}<div class="muted" style="margin-top:6px;font-size:18px">Bred for: ${picks || "nobody released"}</div></div>${board()}</div>`;
+  }
+</script>
+</body></html>
